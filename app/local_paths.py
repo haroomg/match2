@@ -1,0 +1,5 @@
+DATA_PATH = "trash/data"
+DB_PATH = "trash/db"
+FASTDUP_PATH = "trash/fastdup"
+IMG_PATH = "trash/img" 
+S3_PATH = "trash/s3"
