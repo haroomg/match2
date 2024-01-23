@@ -2,29 +2,13 @@ from fastapi import HTTPException
 from .db import DatabaseConnection
 from dotenv import load_dotenv
 from .s3 import client, bucket
-from .local_paths import *
+from .constans import *
 from .functions import *
 import shutil
 import ijson
 import os
 
-load_dotenv(".env")
 
-paramsp = {
-    "host": os.environ.get("POSTGRES_HOST_P"),
-    "database": os.environ.get("POSTGRES_DB_P"),
-    "user": os.environ.get("POSTGRES_DB_P"),
-    "password": os.environ.get("POSTGRES_PASSWORD_P"),
-    "port": os.environ.get("POSTGRES_PORT_P") 
-}
-
-paramsl = {
-    "host": os.environ.get("POSTGRES_HOST") ,
-    "database": os.environ.get("POSTGRES_DB") ,
-    "user": os.environ.get("POSTGRES_DB") ,
-    "password": os.environ.get("POSTGRES_PASSWORD") ,
-    "port": os.environ.get("POSTGRES_PORT") 
-}
 
 connp = DatabaseConnection(**paramsp)
 connl = DatabaseConnection(**paramsl)
@@ -41,7 +25,7 @@ def load(request_id: str = None) -> dict:
     
     result =  connp.result.fetchone()
     
-    if result:
+    if result != None:
         
         request_table = "request_" + request_id.replace("-", "_")
         
@@ -52,8 +36,7 @@ def load(request_id: str = None) -> dict:
         connl.execute(query, (request_table,))
         
         result = connl.result.fetchone()
-        
-        if not result:
+        if result == None:
             
             query = f'CREATE SCHEMA {request_table}'
             connl.execute(query)
@@ -62,19 +45,62 @@ def load(request_id: str = None) -> dict:
             connp.close()
             
         else:
-            raise HTTPException(status_code=402, detail=f"El {request_id} no existe o esta mal escrito.")
+            connp.close()
+            raise HTTPException(status_code=402, detail=f"El {request_id} ya esta registrado como {request_table}.")
         
     else:
-        raise HTTPException(status_code=402, detail=f"El {request_id} ya esta registrado.")
+        connp.close()
+        raise HTTPException(status_code=402, detail=f"El {request_id} no existe o esta mal escrito.")
+        
     
     # descargamos los archivos que vamos a subir en la db 
     local_path = os.path.join(S3_PATH, request_table)
     os.mkdir(local_path)
     
+    tables_name = []
+    
     for file in ["origin.json", "alternative.json"]:
         
-        local_file = os.path.join(local_file, file)
+        local_file = os.path.join(local_path, file)
         s3_path = os.path.join(files_path, file)
         client.download_file(bucket, s3_path, local_file)
+        name = file.split(".")[0]
         
-        #3
+        table_name = create_load_data(
+            shema_name= request_table,
+            table_name= name,
+            path_file= local_file,
+            conn= connl
+        )
+        
+        tables_name.append(name)
+        
+        os.remove(local_file)
+    shutil.rmtree(local_path)
+    
+    # creamos la tabla inputs
+    query = f"CREATE TABLE IF NOT EXISTS {request_table}.inputs(id SERIAL PRIMARY KEY, input JSONB, date_create timestamp DEFAULT CURRENT_TIMESTAMP)"
+    connl.execute(query)
+    connl.commit()
+    
+    # creamos la tabla machings
+    query = f"""CREATE TABLE IF NOT EXISTS {request_table}.matchings(
+        id SERIAL PRIMARY KEY, 
+        input_id INTEGER REFERENCES {request_table}.inputs (id), 
+        origin_id INTEGER REFERENCES {request_table}.{tables_name[0]} (id),
+        alternative_id INTEGER REFERENCES {request_table}.{tables_name[1]} (id),
+        similarity FLOAT,
+        date_create timestamp DEFAULT CURRENT_TIMESTAMP)
+        """
+    connl.execute(query)
+    
+    # guardamos los cambios efectuados
+    connl.commit()
+    connl.close()
+    
+    return {
+        "msm": f"Se aca de crear y subir la data en el shema: {request_table}",
+        "schema_name": request_table,
+        "tables_created": ["origin", "alternative", "inputs", "matchings"]
+        
+    }
