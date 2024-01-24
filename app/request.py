@@ -8,11 +8,8 @@ import shutil
 import ijson
 import os
 
-
-
 connp = DatabaseConnection(**paramsp)
 connl = DatabaseConnection(**paramsl)
-
 
 def load(request_id: str = None) -> dict:
     
@@ -102,5 +99,4 @@ def load(request_id: str = None) -> dict:
         "msm": f"Se aca de crear y subir la data en el shema: {request_table}",
         "schema_name": request_table,
         "tables_created": ["origin", "alternative", "inputs", "matchings"]
-        
     }
