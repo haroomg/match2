@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 import pandas as pd
 import ijson
 import os
@@ -75,3 +76,134 @@ def create_load_data(
         conn.commit()
     
     return
+
+
+def search(input: dict = None, table_name: str = None, request_id: str = None, conn = None) -> dict:
+    
+    shema = "request_" + request_id.replace("-", "_")
+    
+    query = """
+    SELECT column_name, data_type
+    FROM information_schema.columns
+    WHERE table_schema = '{shema}'
+    AND table_name = '{table}';
+    """
+    
+    def process_data(data: list = None) -> None:
+        
+        data_table = {}
+        
+        for dt in data:
+            
+            name = dt[0]
+            ty = dt[1]
+            
+            if ty == "text":
+                data_table[name] = str
+            elif ty == "integer" or ty == "bigint":
+                data_table[name] = int
+            elif ty == "double precision":
+                data_table[name] = float
+            elif ty == "boolean":
+                data_table[name] = bool
+            elif ty == "jsonb":
+                data_table[name] = [dict, list, tuple]
+        
+        return data_table
+    
+    def is_in(key_name: str = None, columns: list = None) -> tuple:
+        
+        not_in: list = []
+        
+        if key_name in input:
+            
+            if isinstance(input[key_name], dict):
+                
+                
+                if len(input[key_name]):
+                    
+                    for key in input[key_name]:
+                        
+                        if key not in columns:
+                            not_in.append(key)
+                    
+                    if len(not_in) == 0:
+                        return True, None
+                    
+                    else:
+                        return False, {
+                            "msm": f"Las sigientes columnas no se encuentran en la tabl {key_name}",
+                            f"not_in_{key_name}": not_in
+                        }
+                else:
+                    return False, {
+                        "msm": f"El atributo {key_name} no puede estar vacio, debe tener al menos un parametro de busqueda"
+                    }
+            else:
+                return False, {
+                    "msm": f"El atributo {key_name} debe de ser de tipo dict no de {type(input[key_name]).__name__}."
+                }
+        else:
+            return False, None
+    
+    def is_valid(key_name: str = None, columns: list = None) -> tuple:
+        
+        input_values = input[key_name]
+        value_error = {}
+        
+        for key, value in input_values.copy().items():
+            
+            ty_value = type(value)
+            
+            if isinstance(value, (str, list)):
+                if ty_value == columns[key] or isinstance(value, list):
+                    if isinstance(columns[key], list):
+                        value_error[key] = f"por ahora no podemos realizar busquedas dentro de variables de tipo {columns[key]}"
+                else:
+                    value_error[key] = f"La columnas es de tipo {columns[key].__name__} no se puesden realizar busquedas de tipo {ty_value.__name__}."
+                
+            elif isinstance(value, (int, list)):
+                if ty_value == columns[key] or isinstance(value, list):
+                    if isinstance(columns[key], list):
+                        value_error[key] = f"por ahora no podemos realizar busquedas dentro de variables de tipo {columns[key]}"
+                else:
+                    value_error[key] = f"La columnas es de tipo {columns[key].__name__} no se puesden realizar busquedas de tipo {ty_value.__name__}."
+                
+            elif isinstance(value, (float, list)):
+                if ty_value == columns[key] or isinstance(value, list):
+                    if isinstance(columns[key], list):
+                        value_error[key] = f"por ahora no podemos realizar busquedas dentro de variables de tipo {columns[key]}"
+                else:
+                    value_error[key] = f"La columnas es de tipo {columns[key].__name__} no se puesden realizar busquedas de tipo {ty_value.__name__}."
+                
+            elif isinstance(value, (bool, list)):
+                if ty_value == columns[key]:
+                    if isinstance(columns[key], list):
+                        value_error[key] = f"por ahora no podemos realizar busquedas dentro de variables de tipo {columns[key]}"
+                else:
+                    value_error[key] = f"La columnas es de tipo {columns[key].__name__} no se puesden realizar busquedas de tipo {ty_value.__name__}."
+        
+        if not len(value_error):
+            return True, None
+        else:
+            return False, value_error
+        
+        
+    conn.execute(query.format(shema=shema, table=table_name))
+    data_table_origin = process_data(conn.result.fetchall())
+    
+    # validamos que el nombre de las columnas este bien
+    is_ok, msm = is_in(table_name, data_table_origin.keys())
+    
+    # si algo esta mal retornamos el error
+    if not is_ok:
+        raise HTTPException(status_code=402, detail=msm)
+    
+    # validamos que el tipo de valor de busqueda sea correcto
+    is_ok, msm = is_valid(table_name, data_table_origin)
+
+    
+    if not is_ok:
+        raise HTTPException(status_code=402, detail=msm)
+    
+    return 
