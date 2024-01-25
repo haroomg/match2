@@ -1,5 +1,8 @@
 from fastapi import HTTPException
 import pandas as pd
+import itertools
+import datetime
+import imageio
 import ijson
 import os
 
@@ -77,7 +80,7 @@ def create_load_data(
     
     return
 
-
+# 3
 def search(
     request_id: str = None,
     comlumns: list = "*",
@@ -148,10 +151,36 @@ def search(
             return False, {
                 "msm": f"El input debe de ser de tipo dict no de {type(input[key_name]).__name__}."
             }
-
     
     conn.execute(query.format(shema=shema, table=table_name))
     data_table = process_data(conn.result.fetchall())
+    
+    # validamos que las columnas que se piden esten bien escritas
+    if isinstance(comlumns, list) and comlumns != "*":
+        if len(comlumns):
+            error_columns = []
+            for name in comlumns:
+                if name not in data_table:
+                    error_columns.append(name)
+            
+            if len(error_columns):
+                msm = {
+                    "msm": f"Las siguientes columnas no existen en la tabla {table_name}",
+                    "errro_columns": error_columns
+                }
+                raise HTTPException(status_code=402, detail={})
+            else:
+                comlumns = ", ".join(comlumns)
+        else:
+            raise HTTPException(status_code=402, detail="No se puede pasar una lista vacia almenos debe contener el nombre de una columna.")
+        
+    elif isinstance(comlumns, str):
+        if comlumns not in data_table:
+            msm = {
+                "msm": f"La columna {comlumns} no existen en la tabla {table_name}",
+                "errro_column": comlumns
+            }
+            raise HTTPException(status_code=402, detail={})
     
     # validamos que el nombre de las columnas este bien
     is_ok, msm = is_in(table_name, data_table.keys())
@@ -194,7 +223,48 @@ def search(
                 value_bool = "true" if value else "false"
                 query += f"({name} = {value_bool}) {logic} "
     
+    #3 falta validar que el query trae informacion
     query = query[:-4]
     conn.execute(query)
+
+    test, result = itertools.tee(conn.result)
     
-    return conn.result
+
+    try:
+        # si itera es que contiene informacion
+        next(test)
+        del test
+        return result
+    except:
+        return False
+
+
+
+def add_metadata(img_path: str = None, metadata: dict = None) -> str:
+    
+    if not os.path.exists(img_path):
+        raise ValueError(f"La Dirección proporcionada no existe o esta mal escrita:\n{img_path}")
+    
+    if not metadata:
+        # Si el usario no define una metadata, nosotros agregamos
+        metadata = {
+            "msm": "Esta imagen no contenia Metadata",
+            "repair_day": datetime.date.today()
+        }
+    elif not isinstance(metadata, dict):
+        raise ValueError(f"El atributo de Metadata debe ser de tipo dict, no de tipo {type(metadata).__name__}")
+    
+    try:
+        file_name = os.path.basename(img_path)
+        
+        image = imageio.imread(img_path)
+        
+        # re-escribimos la imagen con la metadata agregada
+        imageio.imwrite(img_path, image, **metadata)
+        print(f"Se acaba de agregar la metadata en el archivo {file_name}")
+        
+    except TypeError as e:
+        print(e)
+        
+    finally:
+        return img_path

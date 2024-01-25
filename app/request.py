@@ -24,18 +24,18 @@ def load(request_id: str = None) -> dict:
     
     if result != None:
         
-        request_table = "request_" + request_id.replace("-", "_")
+        request_shema = "request_" + request_id.replace("-", "_")
         
         files_path = result[0]
         
         # validamos que el esquema no exista en la base de datos
         query = "SELECT schema_name FROM information_schema.schemata WHERE schema_name = %s"
-        connl.execute(query, (request_table,))
+        connl.execute(query, (request_shema,))
         
         result = connl.result.fetchone()
         if result == None:
             
-            query = f'CREATE SCHEMA {request_table}'
+            query = f'CREATE SCHEMA {request_shema}'
             connl.execute(query)
             connl.commit()
             
@@ -43,7 +43,7 @@ def load(request_id: str = None) -> dict:
             
         else:
             connp.close()
-            raise HTTPException(status_code=402, detail=f"El {request_id} ya esta registrado como {request_table}.")
+            raise HTTPException(status_code=402, detail=f"El {request_id} ya esta registrado como {request_shema}.")
         
     else:
         connp.close()
@@ -51,7 +51,7 @@ def load(request_id: str = None) -> dict:
         
     
     # descargamos los archivos que vamos a subir en la db 
-    local_path = os.path.join(S3_PATH, request_table)
+    local_path = os.path.join(S3_PATH, request_shema)
     os.mkdir(local_path)
     
     tables_name = []
@@ -64,7 +64,7 @@ def load(request_id: str = None) -> dict:
         name = file.split(".")[0]
         
         table_name = create_load_data(
-            shema_name= request_table,
+            shema_name= request_shema,
             table_name= name,
             path_file= local_file,
             conn= connl
@@ -76,16 +76,16 @@ def load(request_id: str = None) -> dict:
     shutil.rmtree(local_path)
     
     # creamos la tabla inputs
-    query = f"CREATE TABLE IF NOT EXISTS {request_table}.inputs(id SERIAL PRIMARY KEY, input JSONB, date_create timestamp DEFAULT CURRENT_TIMESTAMP)"
+    query = f"CREATE TABLE IF NOT EXISTS {request_shema}.inputs(id SERIAL PRIMARY KEY, input JSONB, date_create timestamp DEFAULT CURRENT_TIMESTAMP)"
     connl.execute(query)
     connl.commit()
     
     # creamos la tabla machings
-    query = f"""CREATE TABLE IF NOT EXISTS {request_table}.matchings(
+    query = f"""CREATE TABLE IF NOT EXISTS {request_shema}.matchings(
         id SERIAL PRIMARY KEY, 
-        input_id INTEGER REFERENCES {request_table}.inputs (id), 
-        origin_id INTEGER REFERENCES {request_table}.{tables_name[0]} (id),
-        alternative_id INTEGER REFERENCES {request_table}.{tables_name[1]} (id),
+        input_id INTEGER REFERENCES {request_shema}.inputs (id), 
+        origin_id INTEGER REFERENCES {request_shema}.{tables_name[0]} (id),
+        alternative_id INTEGER REFERENCES {request_shema}.{tables_name[1]} (id),
         similarity FLOAT,
         date_create timestamp DEFAULT CURRENT_TIMESTAMP)
         """
@@ -96,7 +96,7 @@ def load(request_id: str = None) -> dict:
     connl.close()
     
     return {
-        "msm": f"Se aca de crear y subir la data en el shema: {request_table}",
-        "schema_name": request_table,
+        "msm": f"Se aca de crear y subir la data en el shema: {request_shema}",
+        "schema_name": request_shema,
         "tables_created": ["origin", "alternative", "inputs", "matchings"]
     }
