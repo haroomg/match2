@@ -78,7 +78,13 @@ def create_load_data(
     return
 
 
-def search(input: dict = None, table_name: str = None, request_id: str = None, conn = None) -> dict:
+def search(
+    request_id: str = None,
+    comlumns: list = "*",
+    input: dict = None, 
+    table_name: str = None, 
+    conn = None
+    ) -> None:
     
     shema = "request_" + request_id.replace("-", "_")
     
@@ -88,6 +94,7 @@ def search(input: dict = None, table_name: str = None, request_id: str = None, c
     WHERE table_schema = '{shema}'
     AND table_name = '{table}';
     """
+    
     
     def process_data(data: list = None) -> None:
         
@@ -111,99 +118,83 @@ def search(input: dict = None, table_name: str = None, request_id: str = None, c
         
         return data_table
     
+    
     def is_in(key_name: str = None, columns: list = None) -> tuple:
         
         not_in: list = []
         
-        if key_name in input:
+        if isinstance(input, dict):
             
-            if isinstance(input[key_name], dict):
+            if len(input):
                 
+                for key in input.keys():
+                    
+                    if key not in columns:
+                        not_in.append(key)
                 
-                if len(input[key_name]):
-                    
-                    for key in input[key_name]:
-                        
-                        if key not in columns:
-                            not_in.append(key)
-                    
-                    if len(not_in) == 0:
-                        return True, None
-                    
-                    else:
-                        return False, {
-                            "msm": f"Las sigientes columnas no se encuentran en la tabl {key_name}",
-                            f"not_in_{key_name}": not_in
-                        }
+                if len(not_in) == 0:
+                    return True, None
+                
                 else:
                     return False, {
-                        "msm": f"El atributo {key_name} no puede estar vacio, debe tener al menos un parametro de busqueda"
+                        "msm": f"Las sigientes columnas no se encuentran en la tabla {key_name}",
+                        f"not_in_{key_name}": not_in
                     }
             else:
                 return False, {
-                    "msm": f"El atributo {key_name} debe de ser de tipo dict no de {type(input[key_name]).__name__}."
+                    "msm": f"El input no puede estar vacio, debe tener al menos un parametro de busqueda"
                 }
         else:
-            return False, None
+            return False, {
+                "msm": f"El input debe de ser de tipo dict no de {type(input[key_name]).__name__}."
+            }
+
     
-    def is_valid(key_name: str = None, columns: list = None) -> tuple:
-        
-        input_values = input[key_name]
-        value_error = {}
-        
-        for key, value in input_values.copy().items():
-            
-            ty_value = type(value)
-            
-            if isinstance(value, (str, list)):
-                if ty_value == columns[key] or isinstance(value, list):
-                    if isinstance(columns[key], list):
-                        value_error[key] = f"por ahora no podemos realizar busquedas dentro de variables de tipo {columns[key]}"
-                else:
-                    value_error[key] = f"La columnas es de tipo {columns[key].__name__} no se puesden realizar busquedas de tipo {ty_value.__name__}."
-                
-            elif isinstance(value, (int, list)):
-                if ty_value == columns[key] or isinstance(value, list):
-                    if isinstance(columns[key], list):
-                        value_error[key] = f"por ahora no podemos realizar busquedas dentro de variables de tipo {columns[key]}"
-                else:
-                    value_error[key] = f"La columnas es de tipo {columns[key].__name__} no se puesden realizar busquedas de tipo {ty_value.__name__}."
-                
-            elif isinstance(value, (float, list)):
-                if ty_value == columns[key] or isinstance(value, list):
-                    if isinstance(columns[key], list):
-                        value_error[key] = f"por ahora no podemos realizar busquedas dentro de variables de tipo {columns[key]}"
-                else:
-                    value_error[key] = f"La columnas es de tipo {columns[key].__name__} no se puesden realizar busquedas de tipo {ty_value.__name__}."
-                
-            elif isinstance(value, (bool, list)):
-                if ty_value == columns[key]:
-                    if isinstance(columns[key], list):
-                        value_error[key] = f"por ahora no podemos realizar busquedas dentro de variables de tipo {columns[key]}"
-                else:
-                    value_error[key] = f"La columnas es de tipo {columns[key].__name__} no se puesden realizar busquedas de tipo {ty_value.__name__}."
-        
-        if not len(value_error):
-            return True, None
-        else:
-            return False, value_error
-        
-        
     conn.execute(query.format(shema=shema, table=table_name))
-    data_table_origin = process_data(conn.result.fetchall())
+    data_table = process_data(conn.result.fetchall())
     
     # validamos que el nombre de las columnas este bien
-    is_ok, msm = is_in(table_name, data_table_origin.keys())
+    is_ok, msm = is_in(table_name, data_table.keys())
     
     # si algo esta mal retornamos el error
     if not is_ok:
         raise HTTPException(status_code=402, detail=msm)
     
-    # validamos que el tipo de valor de busqueda sea correcto
-    is_ok, msm = is_valid(table_name, data_table_origin)
-
+    if "logic" in input:
+        logic = input["logic"].upper()
+    else:
+        logic = "OR"
     
-    if not is_ok:
-        raise HTTPException(status_code=402, detail=msm)
+    # si todo sale bien, empezamos a construir el query
+    query: str = f"SELECT {comlumns} FROM {shema}.{table_name} WHERE "
     
-    return 
+    for name, value in input.items():
+        
+        field_type = data_table[name]
+        
+        if field_type == str:
+            if isinstance(value, str):
+                query += f"({name} = '{value}') {logic} "
+            if isinstance(value, list):
+                values = ", ".join([f"'{vl}'" for vl in value])
+                query += f"({name} IN ({values})) {logic} "
+        
+        elif field_type == int or field_type == float:
+            if isinstance(value, (int,float)):
+                query += f"({name} = {value}) {logic} "
+            if isinstance(value, list):
+                values = ", ".join([str(vl) for vl in value])
+                query += f"({name} IN ({values})) {logic} "
+            if isinstance(value, str):
+                start, end = [int(vl) for vl in value.split(":")]
+                query += f"({name} BETWEEN {start} AND {end}) {logic} "
+        
+        elif field_type == bool:
+            if isinstance(value, bool):
+                value_bool = "true" if value else "false"
+                query += f"({name} = {value_bool}) {logic} "
+    
+    query = query[:-4]
+    conn.execute(query)
+    
+    return conn.result
