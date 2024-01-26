@@ -63,7 +63,7 @@ def load(request_id: str = None) -> dict:
         client.download_file(bucket, s3_path, local_file)
         name = file.split(".")[0]
         
-        table_name = create_load_data(
+        create_load_data(
             shema_name= request_shema,
             table_name= name,
             path_file= local_file,

@@ -60,8 +60,10 @@ def create_load_data(
         
         objets_json = ijson.items(json_file, "item")
         
-        query = f"INSERT INTO {shema_name}.{table_name}({', '.join(dtype.keys())})" 
-        copy = query
+        columns = ', '.join(dtype.keys())
+        values = ', '.join(['%s'] * len(dtype.keys()))
+        
+        query = f"INSERT INTO {shema_name}.{table_name}({columns}) VALUES ({values})" 
         
         for obj in objets_json:
             params = []
@@ -72,13 +74,12 @@ def create_load_data(
                 if isinstance(val, (dict, tuple, list)):
                     params.append(str(val).replace("'", "\"").replace("None", "null"))
             
-            query += f" VALUES ({', '.join(['%s'] * len(params))})"
             conn.execute(query, tuple(params))
-            query = copy
         
         conn.commit()
     
     return
+
 
 # 3
 def search(
@@ -237,7 +238,6 @@ def search(
         return result
     except:
         return False
-
 
 
 def add_metadata(img_path: str = None, metadata: dict = None) -> str:
