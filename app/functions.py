@@ -28,7 +28,7 @@ def create_load_data(
 
     # Aplicar la función a cada elemento de la columna
     df = pd.read_json(path_file)
-    df = dtype = df.map(obtener_tipo_dato).drop_duplicates().loc[0].to_dict()
+    dtype = df.map(obtener_tipo_dato).drop_duplicates().loc[0].to_dict()
     del df
     
     for name, ty in dtype.copy().items():
@@ -81,7 +81,6 @@ def create_load_data(
     return
 
 
-# 3
 def search(
     request_id: str = None,
     comlumns: list = "*",
