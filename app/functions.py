@@ -1,10 +1,14 @@
 from fastapi import HTTPException
+from .constans import BUCKET
+from .s3 import client
 import pandas as pd
+import concurrent
 import itertools
 import datetime
 import imageio
 import ijson
 import os
+
 
 def create_load_data(
     shema_name: str = "public",
@@ -237,6 +241,47 @@ def search(
         return result
     except:
         return False
+
+
+def download_files(local_path_images: str = None, destination_folder: str = None) -> None:
+
+    def download_file(imagen: str = None) -> None:
+
+        file_name = os.path.basename(imagen)
+        path = os.path.join(destination_folder, file_name)
+
+        try:
+            client.download_file(BUCKET, imagen, path)
+        except Exception as e:
+            print(f"Error al descargar la imagen {imagen}: {str(e)}")
+
+
+    with open(local_path_images, 'r') as images:
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            file_copy = os.path.join(os.path.dirname(local_path_images), "local_path_files.txt")
+
+            with open(file_copy, "w") as file:
+
+                futures = []
+
+                # Inicia la descarga de las imágenes en paralelo
+                for image in images:
+
+                    futures.append(executor.submit(download_file, image.replace("\n", "")))
+                    file_name = os.path.basename(image)
+                    path_img = os.path.join(destination_folder, file_name)
+
+                    file.write(path_img)
+                
+            #3 aqui va la parte donde asignamos al archivo copia como original
+            
+            # Espera a que todas las descargas se completen
+            concurrent.futures.wait(futures)
+
+    print("Todos los archivos acaban de ser descargados.")
+    print(f"El archivo {local_path_images} acaba de ser midificado.")
+
+    return file_copy
 
 
 def add_metadata(img_path: str = None, metadata: dict = None) -> str:
