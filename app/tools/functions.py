@@ -243,15 +243,57 @@ def search(
         return False
 
 
-def download_files(local_path_images: str = None, destination_folder: str = None) -> None:
+def add_metadata(
+        img_path: str = None, 
+        metadata: dict = None
+        ) -> str:
+    
+    if not os.path.exists(img_path):
+        raise ValueError(f"La Dirección proporcionada no existe o esta mal escrita:\n{img_path}")
+    
+    if not metadata:
+        # Si el usario no define una metadata, nosotros agregamos
+        metadata = {
+            "msm": "Esta imagen no contenia Metadata",
+            "repair_day": datetime.date.today()
+        }
+    elif not isinstance(metadata, dict):
+        raise ValueError(f"El atributo de Metadata debe ser de tipo dict, no de tipo {type(metadata).__name__}")
+    
+    try:
+        # file_name = os.path.basename(img_path)
+        
+        image = imageio.imread(img_path)
+        # re-escribimos la imagen con la metadata agregada
+        imageio.imwrite(img_path, image, **metadata)
+        # print(f"Se acaba de agregar la metadata en el archivo {file_name}")
+    
+    #3
+    except TypeError as e:
+        print(e)
+        
+    finally:
+        return img_path
 
-    def download_file(imagen: str = None) -> None:
+
+def download_images(
+        local_path_images: str = None, 
+        destination_folder: str = None
+    ) -> str:
+
+    def download_image(imagen: str = None) -> None:
 
         file_name = os.path.basename(imagen)
         path = os.path.join(destination_folder, file_name)
 
         try:
             client.download_file(BUCKET, imagen, path)
+            # modificamos la metadata de la imagen y en caso de que no tenga se la agregamos
+            try:
+                add_metadata(path)
+            except:
+                print(f"La metadata del archivo no pudo ser modificada:\nFile:{path}")
+
         except Exception as e:
             print(f"Error al descargar la imagen {imagen}: {str(e)}")
 
@@ -267,7 +309,7 @@ def download_files(local_path_images: str = None, destination_folder: str = None
                 # Inicia la descarga de las imágenes en paralelo
                 for image in images:
 
-                    futures.append(executor.submit(download_file, image.replace("\n", "")))
+                    futures.append(executor.submit(download_image, image.replace("\n", "")))
                     file_name = os.path.basename(image)
                     path_img = os.path.join(destination_folder, file_name)
 
@@ -282,33 +324,3 @@ def download_files(local_path_images: str = None, destination_folder: str = None
     print(f"El archivo {local_path_images} acaba de ser midificado.")
 
     return file_copy
-
-
-def add_metadata(img_path: str = None, metadata: dict = None) -> str:
-    
-    if not os.path.exists(img_path):
-        raise ValueError(f"La Dirección proporcionada no existe o esta mal escrita:\n{img_path}")
-    
-    if not metadata:
-        # Si el usario no define una metadata, nosotros agregamos
-        metadata = {
-            "msm": "Esta imagen no contenia Metadata",
-            "repair_day": datetime.date.today()
-        }
-    elif not isinstance(metadata, dict):
-        raise ValueError(f"El atributo de Metadata debe ser de tipo dict, no de tipo {type(metadata).__name__}")
-    
-    try:
-        file_name = os.path.basename(img_path)
-        
-        image = imageio.imread(img_path)
-        
-        # re-escribimos la imagen con la metadata agregada
-        imageio.imwrite(img_path, image, **metadata)
-        print(f"Se acaba de agregar la metadata en el archivo {file_name}")
-        
-    except TypeError as e:
-        print(e)
-        
-    finally:
-        return img_path

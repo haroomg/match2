@@ -1,7 +1,7 @@
-from .functions import search, download_files, add_metadata
-from .db import DatabaseConnection
+from .tools.functions import search, download_images, add_metadata
+from .tools.db import DatabaseConnection
 from fastapi import HTTPException
-from .constans import *
+from .tools.constans import *
 import pandas as pd
 import fastdup 
 import sqlite3
@@ -12,6 +12,9 @@ import os
 connl = DatabaseConnection(**paramsl)
 conn_origin = DatabaseConnection(**paramsl)
 conn_alternative = DatabaseConnection(**paramsl)
+
+get_request_name = lambda request : "request_" + request.replace("-", "_")
+
 
 def image(path_imgs: str = None) -> pd.DataFrame:
 
@@ -24,13 +27,17 @@ def image(path_imgs: str = None) -> pd.DataFrame:
     # pedimos las imagenes que son invalidas
     invalid_img: list = fd.invalid_instances()["filename"].to_list()
     
-    if len(invalid_img):
+    """
+    como las imagenes descargadas le agregamos la metadata no es necesario 
+    ejecutar de nuevo el analisis, pero hay que ver como retornar que las imagenes estan malas
+    """
+    # if len(invalid_img):
 
-        for damaged_file in invalid_img:
-            add_metadata(damaged_file)
+    #     for damaged_file in invalid_img:
+    #         add_metadata(damaged_file)
         
-        # analizo las imagenes de nuevo
-        fd.run(path_imgs, threshold= 0.5, overwrite= True, high_accuracy= True)
+    #     # analizo las imagenes de nuevo
+    #     fd.run(path_imgs, threshold= 0.5, overwrite= True, high_accuracy= True)
 
     similarity = fd.similarity()
     # borramos los archivos que se generaron
@@ -38,30 +45,29 @@ def image(path_imgs: str = None) -> pd.DataFrame:
     
     return similarity
 
+
 def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: str = None, s3_path_img_alternative: str = None):
     
     connl.connect()
-    request_name = "request_" + request_id.replace("-", "_")
+    request_name = get_request_name(request_id)
 
     # validamos que el input no exista en caso contrario notificamos que ya existe
     query = f"SELECT * FROM {request_name}.inputs WHERE input = %s"
     params = (json.dumps(input), )
     connl.execute(query, params)
+    result = connl.result.fetchone()
+    
+    # si la consulta no retorna un None quiere decir que ya existe, reportamos que ya existe
+    if result != None:
 
-    #3 Ve como reportar si el input existe
-    # try:
-    #     result = next(connl.result)
+        msm = {
+            "msm":"El input ya existe",
+            "input_id": result[0],
+            "input": result[1],
+            "date_create": str(result[2])
+        }
 
-    #     msm = {
-    #         "msm":"El input ya existe",
-    #         "input_id": result[0],
-    #         "input": result[1],
-    #         "date_create": result[2]
-    #     }
-
-    # except:
-
-    #     raise HTTPException(status_code=409, detail=msm)
+        raise HTTPException(status_code=409, detail=msm)
 
     input_origin: dict = input["origin"]
     input_alternative: dict = input["alternative"]
@@ -150,7 +156,7 @@ def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: st
         conn_lite.close()
 
         # descargamos las imagenes del s3
-        new_file_name = download_files(filename_images, image_dir)
+        new_file_name = download_images(filename_images, image_dir)
 
     similarity = image(new_file_name)
 
@@ -186,3 +192,16 @@ def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: st
     connl.commit()
     connl.close()
     shutil.rmtree(db_dir)
+
+
+def list_matches(request_id: str = None, input_id: int = None) -> list:
+
+    connl.connect()
+    request_name = get_request_name(request_id)
+    query = f"SELECT * FROM {request_name}.matchings WHERE input_id = {input_id}"
+
+    connl.execute(query)
+
+    result = connl.result.fetchall()
+
+    return result
