@@ -169,10 +169,13 @@ def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: st
     
     with sqlite3.connect(db_name) as conn_lite:
         
+        #3 valida que lo que vas a subir a la base de datos la data que vayas a subir no coincida porque sino habra duplicidad de data
+
         query = "SELECT id FROM {table_name} WHERE file_name = '{file_name}'"
-        query2 = F"INSERT INTO {request_name}.matchings(input_id, origin_id, alternative_id, similarity) VALUES(%s, %s, %s, %s)"
+        query2 = f"SELECT origin_id, alternative_id FROM {request_name}.matchings WHERE origin_id = %s AND alternative_id = %s"
+        query3 = f"INSERT INTO {request_name}.matchings(input_id, origin_id, alternative_id, similarity) VALUES(%s, %s, %s, %s)"
         
-        for i, row in similarity.iterrows():
+        for _, row in similarity.iterrows():
 
             filename_from = row["filename_from"]
             origin_id = conn_lite.execute(query.format(table_name="origin", file_name=filename_from)).fetchone()
@@ -185,8 +188,14 @@ def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: st
                 if not alternative_id:
                     continue
                 else:
-                    params = (input_id, origin_id[0], alternative_id[0], row["distance"])
-                    connl.execute(query2, params= params)
+                    params = (origin_id[0], alternative_id[0],)
+                    connl.execute(query2, params)
+                    result = connl.result.fetchone()
+
+                    if result == None:
+
+                        params = (input_id, origin_id[0], alternative_id[0], row["distance"])
+                        connl.execute(query3, params= params)
                     
     conn_lite.close()
     connl.commit()
