@@ -1,4 +1,5 @@
 from fastapi import HTTPException
+from pprint import pprint as pp
 from .constans import BUCKET
 from .s3 import client
 import pandas as pd
@@ -7,8 +8,8 @@ import itertools
 import datetime
 import imageio
 import ijson
+import json
 import os
-
 
 def create_load_data(
     shema_name: str = "public",
@@ -17,218 +18,90 @@ def create_load_data(
     conn = None
     ) -> None:
     
-    """
-    apartir de la direccion de un json, crea una tabla y sube los datos del json
-    Returns:
-        _type_: None
-    """
-    
-    if not table_name:
-        table_name = os.path.basename(path_file).split(".")[0]
-    
-    # Función para obtener el tipo de dato de un elemento
-    def obtener_tipo_dato(elemento):
-        return type(elemento).__name__
-
-    # Aplicar la función a cada elemento de la columna
-    df = pd.read_json(path_file)
-    dtype = df.map(obtener_tipo_dato).drop_duplicates().loc[0].to_dict()
-    del df
-    
-    for name, ty in dtype.copy().items():
-        if ty == "int":
-            dtype[name] = "BIGINT"
-        elif ty == "float":
-            dtype[name] = "DOUBLE PRECISION"
-        elif ty == "bool":
-            dtype[name] = "BOOLEAN"
-        elif ty == "str":
-            dtype[name] = "TEXT"
-        elif ty == "list":
-            dtype[name] = "JSONB"
-        elif ty == "dict":
-            dtype[name] = "JSONB"
-        else:
-            dtype[name] = "TEXT"
-    
-    content_table = "id SERIAL PRIMARY KEY, "
-    for name, value in dtype.items():
-        content_table += f"{name} {value}, "
-    content_table = content_table[:-2]
-    
-    query = f"CREATE TABLE IF NOT EXISTS {shema_name}.{table_name}({content_table})"
+    query = f"CREATE TABLE IF NOT EXISTS {shema_name}.{table_name}(id SERIAL PRIMARY KEY, products JSONB)"
     conn.execute(query)
     conn.commit()
+
+    with open(path_file, "r", encoding="utf8") as file:
+        json_file = ijson.items(file, "item")
+
+        query = f"INSERT INTO {shema_name}.{table_name}(products) VALUES(%s)"
+        cont = 0
+
+        for obj in json_file:
+            conn.execute(query, (json.dumps(obj),))
+            cont += 1
     
-    with open(path_file, "r", encoding="utf-8") as json_file:
-        
-        objets_json = ijson.items(json_file, "item")
-        
-        columns = ', '.join(dtype.keys())
-        values = ', '.join(['%s'] * len(dtype.keys()))
-        
-        query = f"INSERT INTO {shema_name}.{table_name}({columns}) VALUES ({values})" 
-        
-        for obj in objets_json:
-            params = []
-            
-            for val in obj.values():
-                if isinstance(val, (str, int, float)):
-                    params.append(val)
-                if isinstance(val, (dict, tuple, list)):
-                    params.append(str(val).replace("'", "\"").replace("None", "null"))
-            
-            conn.execute(query, tuple(params))
-        
+        print(f"La tabla {table_name} fue creada en el shema {shema_name}.")
+        print(f"Un total de {cont} filas fueron ingresados en la tabla {table_name}.")
         conn.commit()
     
     return
 
 
 def search(
-    request_id: str = None,
-    comlumns: list = "*",
-    input: dict = None, 
+    schema_name: str = "public",
     table_name: str = None, 
+    comlumns: list = "*",
+    parameter: dict = None, 
     conn = None
     ) -> None:
-    
-    shema = "request_" + request_id.replace("-", "_")
-    
-    query = """
-    SELECT column_name, data_type
-    FROM information_schema.columns
-    WHERE table_schema = '{shema}'
-    AND table_name = '{table}';
-    """
-    
-    
-    def process_data(data: list = None) -> None:
-        
-        data_table = {}
-        
-        for dt in data:
-            
-            name = dt[0]
-            ty = dt[1]
-            
-            if ty == "text":
-                data_table[name] = str
-            elif ty == "integer" or ty == "bigint":
-                data_table[name] = int
-            elif ty == "double precision":
-                data_table[name] = float
-            elif ty == "boolean":
-                data_table[name] = bool
-            elif ty == "jsonb":
-                data_table[name] = [dict, list, tuple]
-        
-        return data_table
-    
-    
-    def is_in(key_name: str = None, columns: list = None) -> tuple:
-        
-        not_in: list = []
-        
-        if isinstance(input, dict):
-            
-            if len(input):
-                
-                for key in input.keys():
-                    
-                    if key not in columns:
-                        not_in.append(key)
-                
-                if len(not_in) == 0:
-                    return True, None
-                
-                else:
-                    return False, {
-                        "msm": f"Las sigientes columnas no se encuentran en la tabla {key_name}",
-                        f"not_in_{key_name}": not_in
-                    }
-            else:
-                return False, {
-                    "msm": f"El input no puede estar vacio, debe tener al menos un parametro de busqueda"
-                }
-        else:
-            return False, {
-                "msm": f"El input debe de ser de tipo dict no de {type(input[key_name]).__name__}."
-            }
-    
-    conn.execute(query.format(shema=shema, table=table_name))
-    data_table = process_data(conn.result.fetchall())
-    
-    # validamos que las columnas que se piden esten bien escritas
-    if isinstance(comlumns, list) and comlumns != "*":
-        if len(comlumns):
-            error_columns = []
-            for name in comlumns:
-                if name not in data_table:
-                    error_columns.append(name)
-            
-            if len(error_columns):
-                msm = {
-                    "msm": f"Las siguientes columnas no existen en la tabla {table_name}",
-                    "errro_columns": error_columns
-                }
-                raise HTTPException(status_code=402, detail={})
-            else:
-                comlumns = ", ".join(comlumns)
-        else:
-            raise HTTPException(status_code=402, detail="No se puede pasar una lista vacia almenos debe contener el nombre de una columna.")
-        
-    elif isinstance(comlumns, str):
-        if comlumns not in data_table:
-            msm = {
-                "msm": f"La columna {comlumns} no existen en la tabla {table_name}",
-                "errro_column": comlumns
-            }
-            raise HTTPException(status_code=402, detail={})
-    
-    # validamos que el nombre de las columnas este bien
-    is_ok, msm = is_in(table_name, data_table.keys())
-    
-    # si algo esta mal retornamos el error
-    if not is_ok:
-        raise HTTPException(status_code=402, detail=msm)
-    
-    if "logic" in input:
-        logic = input["logic"].upper()
+
+    if "operator" in parameter:
+        operator = parameter["operator"].upper()
+        del  parameter["operator"]
     else:
-        logic = "OR"
+        operator = "AND"
     
-    # si todo sale bien, empezamos a construir el query
-    query: str = f"SELECT {comlumns} FROM {shema}.{table_name} WHERE "
+    if comlumns != "*":
+        col = ", ".join(comlumns)
+    else:
+        col = comlumns
     
-    for name, value in input.items():
+    query = f"SELECT {col} FROM {schema_name}.{table_name} WHERE "
+
+    for key, value in parameter.items():
+
+        if isinstance(value, str):
+            query += f"({key} = '{value}') {operator} "
+
+        if isinstance(value, int):
+            query += f"({key} = {value}) {operator} "
+
+        if isinstance(value, float):
+            query += f"({key} = {value}) {operator} "
+
+        if isinstance(value, bool):
+            if value:
+                value = "true"
+            else:
+                value = "false"
+            query += f"({key} = {value}) {operator} "
+
+        if isinstance(value, list):
+            values = []
+            for val in value:
+                if isinstance(val, str):
+                    values.append(f"'{val}'")
+                if isinstance(val, (int, float)):
+                    values.append(val)
+            values = ", ".join(values)
+            query += f"({key} IN ({values})) {operator} "
+
+        if isinstance(value, dict):
+            for name, vl in value.items():
+                if isinstance(vl, str):
+                    query += f"({key}->> '{name}' = '{vl}') {operator} "
+                if isinstance(vl, (int, float)):
+                    query += f"({key}->> '{name}' = {vl}) {operator} "
+                if isinstance(vl, bool):
+                    if vl:
+                        vl = "true"
+                    else:
+                        vl = "false"
+                    query += f"({key}->> '{name}' = {vl}) {operator} "
         
-        field_type = data_table[name]
-        
-        if field_type == str:
-            if isinstance(value, str):
-                query += f"({name} = '{value}') {logic} "
-            if isinstance(value, list):
-                values = ", ".join([f"'{vl}'" for vl in value])
-                query += f"({name} IN ({values})) {logic} "
-        
-        elif field_type == int or field_type == float:
-            if isinstance(value, (int,float)):
-                query += f"({name} = {value}) {logic} "
-            if isinstance(value, list):
-                values = ", ".join([str(vl) for vl in value])
-                query += f"({name} IN ({values})) {logic} "
-            if isinstance(value, str):
-                start, end = [int(vl) for vl in value.split(":")]
-                query += f"({name} BETWEEN {start} AND {end}) {logic} "
-        
-        elif field_type == bool:
-            if isinstance(value, bool):
-                value_bool = "true" if value else "false"
-                query += f"({name} = {value_bool}) {logic} "
-    
-    #3 falta validar que el query trae informacion
-    query = query[:-4]
+    query = query[:-(len(operator)+2)]
     conn.execute(query)
 
     test, result = itertools.tee(conn.result)
@@ -284,7 +157,7 @@ def download_images(
     def download_image(imagen: str = None) -> None:
 
         file_name = os.path.basename(imagen)
-        path = os.path.join(destination_folder, file_name)
+        path = os.path.join(destination_folder, file_name).replace("\\", "/")
 
         try:
             client.download_file(BUCKET, imagen, path)
@@ -300,7 +173,7 @@ def download_images(
 
     with open(local_path_images, 'r') as images:
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            file_copy = os.path.join(os.path.dirname(local_path_images), "local_path_files.txt")
+            file_copy = os.path.join(os.path.dirname(local_path_images), "local_path_files.txt").replace("\\", "/")
 
             with open(file_copy, "w") as file:
 
@@ -312,10 +185,10 @@ def download_images(
                     futures.append(executor.submit(download_image, image.replace("\n", "")))
                     file_name = os.path.basename(image)
                     path_img = os.path.join(destination_folder, file_name)
+                    path_img = path_img.replace("\\", "/")
 
+                    #3
                     file.write(path_img)
-                
-            #3 aqui va la parte donde asignamos al archivo copia como original
             
             # Espera a que todas las descargas se completen
             concurrent.futures.wait(futures)

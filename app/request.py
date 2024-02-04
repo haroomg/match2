@@ -1,17 +1,13 @@
-from .tools.db import DatabaseConnection
 from fastapi import HTTPException
-from dotenv import load_dotenv
 from .tools.s3 import client, bucket
 from .tools.functions import *
 from .tools.constans import *
 import shutil
-import ijson
 import os
 
-connp = DatabaseConnection(**paramsp)
-connl = DatabaseConnection(**paramsl)
 
-def load(request_id: str = None) -> dict:
+
+def load(request_id: str = None, connp = None, connl = None) -> dict:
     
     connp.connect()
     connl.connect()

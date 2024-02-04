@@ -1,5 +1,4 @@
 from .tools.functions import search, download_images, add_metadata
-from .tools.db import DatabaseConnection
 from fastapi import HTTPException
 from .tools.constans import *
 import pandas as pd
@@ -8,10 +7,6 @@ import sqlite3
 import shutil
 import json
 import os
-
-connl = DatabaseConnection(**paramsl)
-conn_origin = DatabaseConnection(**paramsl)
-conn_alternative = DatabaseConnection(**paramsl)
 
 get_request_name = lambda request : "request_" + request.replace("-", "_")
 
@@ -26,27 +21,23 @@ def image(path_imgs: str = None) -> pd.DataFrame:
 
     # pedimos las imagenes que son invalidas
     invalid_img: list = fd.invalid_instances()["filename"].to_list()
-    
-    """
-    como las imagenes descargadas le agregamos la metadata no es necesario 
-    ejecutar de nuevo el analisis, pero hay que ver como retornar que las imagenes estan malas
-    """
-    # if len(invalid_img):
-
-    #     for damaged_file in invalid_img:
-    #         add_metadata(damaged_file)
-        
-    #     # analizo las imagenes de nuevo
-    #     fd.run(path_imgs, threshold= 0.5, overwrite= True, high_accuracy= True)
 
     similarity = fd.similarity()
     # borramos los archivos que se generaron
     shutil.rmtree(fastdup_dir)
     
-    return similarity
+    return similarity, invalid_img
 
 
-def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: str = None, s3_path_img_alternative: str = None):
+def match_img(
+        request_id: str = None, 
+        input: dict = None, 
+        s3_path_img_origin: str = None, 
+        s3_path_img_alternative: str = None, 
+        connl = None, 
+        conn_origin = None, 
+        conn_alternative = None
+        ) -> dict:
     
     connl.connect()
     request_name = get_request_name(request_id)
@@ -75,8 +66,8 @@ def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: st
     conn_origin.connect()
     conn_alternative.connect()
     
-    search_origin = search(request_id= request_id, comlumns= ["id","product_images"], input= input_origin, table_name= "origin", conn= conn_origin)
-    search_alternative = search(request_id=request_id, comlumns=["id","product_images"], input= input_alternative, table_name= "alternative", conn= conn_alternative)
+    search_origin = search(schema_name= request_name, comlumns= ["id","products"], parameter= input_origin, table_name= "origin", conn= conn_origin)
+    search_alternative = search(schema_name= request_name, comlumns=["id","products"], parameter= input_alternative, table_name= "alternative", conn= conn_alternative)
 
     # validamos que las busqueda tengan data 
     if not search_origin or not search_alternative:
@@ -104,13 +95,12 @@ def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: st
     input_id = connl.result.fetchone()[0]
     
     # creamos la carpeta donde vamos a guardar los resultados de fastdup, las imagenes
-    fastdup_dir = os.path.join(FASTDUP_PATH, request_name)
-    image_dir = os.path.join(IMG_PATH, request_name)
-    db_dir = os.path.join(DB_PATH, request_name)
-    db_name = db_dir + ".sqlite"
+    fastdup_dir = os.path.join(FASTDUP_PATH, request_name).replace("\\", "/")
+    image_dir = os.path.join(IMG_PATH, request_name).replace("\\", "/")
+    db_dir = os.path.join(DB_PATH, request_name).replace("\\", "/")
+    db_name =  os.path.join(db_dir, (request_name + ".sqlite"))
     filename_images = os.path.join(fastdup_dir, "path_images.txt") 
 
-    
     # creamos las carpetas
     os.makedirs(fastdup_dir)
     os.makedirs(image_dir)
@@ -131,11 +121,13 @@ def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: st
             for data in search_origin:
                 
                 id_ = data[0]
-                files_name = [img for img in data[1] if img != None]
+                list_images = data[1]["product_images"]
+                files_name = [img for img in list_images if img != None]
                 
                 for name in files_name:
                     conn_lite.execute(query.format(table_name="origin"), (id_, name,))
                     path = os.path.join(s3_path_img_origin, name)
+                    path = path.replace("\\", "/")
                     file.write(path+"\n")
             
             conn_origin.close()
@@ -143,11 +135,13 @@ def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: st
             for data in search_alternative:
                 
                 id_ = data[0]
-                files_name = [img for img in data[1] if img != None]
+                list_images =  data[1]["product_images"]
+                files_name = [img for img in list_images if img != None]
                 
                 for name in files_name:
                     conn_lite.execute(query.format(table_name="alternative"), (id_, name,))
                     path = os.path.join(s3_path_img_alternative, name)
+                    path = path.replace("\\", "/")
                     file.write(path+"\n")
             
             conn_alternative.close()
@@ -158,7 +152,7 @@ def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: st
         # descargamos las imagenes del s3
         new_file_name = download_images(filename_images, image_dir)
 
-    similarity = image(new_file_name)
+    similarity, invalid_img = image(new_file_name)
 
     # Eliminamos las imagenes que se acaban de descargar 
     shutil.rmtree(image_dir)
@@ -169,8 +163,7 @@ def match_img(request_id: str = None, input: dict = None, s3_path_img_origin: st
     
     with sqlite3.connect(db_name) as conn_lite:
         
-        #3 valida que lo que vas a subir a la base de datos la data que vayas a subir no coincida porque sino habra duplicidad de data
-
+        #3 validamos que la data que se va ha subir no exista
         query = "SELECT id FROM {table_name} WHERE file_name = '{file_name}'"
         query2 = f"SELECT origin_id, alternative_id FROM {request_name}.matchings WHERE origin_id = %s AND alternative_id = %s"
         query3 = f"INSERT INTO {request_name}.matchings(input_id, origin_id, alternative_id, similarity) VALUES(%s, %s, %s, %s)"
