@@ -170,6 +170,7 @@ def download_images(
         except Exception as e:
             print(f"Error al descargar la imagen {imagen}: {str(e)}")
 
+    cont = 0
 
     with open(local_path_images, 'r') as images:
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -189,11 +190,13 @@ def download_images(
 
                     #3
                     file.write(path_img)
+                    cont += 1
+
             
             # Espera a que todas las descargas se completen
             concurrent.futures.wait(futures)
 
-    print("Todos los archivos acaban de ser descargados.")
+    print(f"Un total de {cont} acaban de ser descargados")
     print(f"El archivo {local_path_images} acaba de ser midificado.")
 
-    return file_copy
+    return file_copy, cont

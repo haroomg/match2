@@ -11,7 +11,7 @@ import os
 get_request_name = lambda request : "request_" + request.replace("-", "_")
 
 
-def image(path_imgs: str = None) -> pd.DataFrame:
+def fd(path_imgs: str = None) -> pd.DataFrame:
 
     fastdup_dir = os.path.dirname(path_imgs)
     fd = fastdup.create(fastdup_dir)
@@ -150,60 +150,66 @@ def match_img(
         conn_lite.close()
 
         # descargamos las imagenes del s3
-        new_file_name = download_images(filename_images, image_dir)
+        new_file_name, cont = download_images(filename_images, image_dir)
 
-    similarity, invalid_img = image(new_file_name)
+    if cont:
 
-    # Eliminamos las imagenes que se acaban de descargar 
-    shutil.rmtree(image_dir)
-    
-    # cambiamos el la direccion de las imagenes para que solo sea el nombre del archivo
-    for col_name in ["filename_from", "filename_to"]: 
-        similarity[col_name] = similarity[col_name].apply(lambda x : os.path.basename(x))
-    
-    with sqlite3.connect(db_name) as conn_lite:
+        similarity, invalid_img = fd(new_file_name)
+
+        # Eliminamos las imagenes que se acaban de descargar 
+        shutil.rmtree(image_dir)
         
-        #3 validamos que la data que se va ha subir no exista
-        query = "SELECT id FROM {table_name} WHERE file_name = '{file_name}'"
-        query2 = f"SELECT origin_id, alternative_id FROM {request_name}.matchings WHERE origin_id = %s AND alternative_id = %s"
-        query3 = f"INSERT INTO {request_name}.matchings(input_id, origin_id, alternative_id, similarity) VALUES(%s, %s, %s, %s)"
+        # cambiamos el la direccion de las imagenes para que solo sea el nombre del archivo
+        for col_name in ["filename_from", "filename_to"]: 
+            similarity[col_name] = similarity[col_name].apply(lambda x : os.path.basename(x))
         
-        for _, row in similarity.iterrows():
+        with sqlite3.connect(db_name) as conn_lite:
+            
+            #3 validamos que la data que se va ha subir no exista
+            query = "SELECT id FROM {table_name} WHERE file_name = '{file_name}'"
+            query2 = f"SELECT origin_id, alternative_id FROM {request_name}.matchings WHERE origin_id = %s AND alternative_id = %s"
+            query3 = f"INSERT INTO {request_name}.matchings(input_id, origin_id, alternative_id, similarity) VALUES(%s, %s, %s, %s)"
+            
+            for _, row in similarity.iterrows():
 
-            filename_from = row["filename_from"]
-            origin_id = conn_lite.execute(query.format(table_name="origin", file_name=filename_from)).fetchone()
+                filename_from = row["filename_from"]
+                origin_id = conn_lite.execute(query.format(table_name="origin", file_name=filename_from)).fetchone()
 
-            if origin_id:
+                if origin_id:
 
-                filename_to = row["filename_to"]
-                alternative_id = conn_lite.execute(query.format(table_name="alternative", file_name=filename_to)).fetchone()
-                
-                if not alternative_id:
-                    continue
-                else:
-                    params = (origin_id[0], alternative_id[0],)
-                    connl.execute(query2, params)
-                    result = connl.result.fetchone()
-
-                    if result == None:
-
-                        params = (input_id, origin_id[0], alternative_id[0], row["distance"])
-                        connl.execute(query3, params= params)
+                    filename_to = row["filename_to"]
+                    alternative_id = conn_lite.execute(query.format(table_name="alternative", file_name=filename_to)).fetchone()
                     
+                    if not alternative_id:
+                        continue
+                    else:
+                        params = (origin_id[0], alternative_id[0],)
+                        connl.execute(query2, params)
+                        result = connl.result.fetchone()
+
+                        if result == None:
+
+                            params = (input_id, origin_id[0], alternative_id[0], row["distance"])
+                            connl.execute(query3, params= params)
+    else:
+        print("No hay archivos para poder analizar")
+        shutil.rmtree(image_dir)
+    
     conn_lite.close()
     connl.commit()
     connl.close()
     shutil.rmtree(db_dir)
+    
 
 
-def list_matches(request_id: str = None, input_id: int = None) -> list:
+def list_matches(request_id: str = None, input_id: int = None, conn = None) -> list:
 
-    connl.connect()
+    conn.connect()
     request_name = get_request_name(request_id)
     query = f"SELECT * FROM {request_name}.matchings WHERE input_id = {input_id}"
 
-    connl.execute(query)
+    conn.execute(query)
 
-    result = connl.result.fetchall()
+    result = conn.result.fetchall()
 
     return result
