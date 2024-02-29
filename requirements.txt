@@ -12,7 +12,7 @@ decorator==5.1.1
 exceptiongroup==1.2.0
 executing==2.0.1
 fastapi==0.109.0
-# fastdup==1.85
+fastdup==1.85
 h11==0.14.0
 idna==3.6
 ijson==3.2.3

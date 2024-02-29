@@ -88,8 +88,8 @@ def match_img(
 
             raise HTTPException(status_code=402, detail=msm_error)
     
-    query = f"INSERT INTO {request_name}.inputs (input) VALUES (%s) RETURNING id"
-    params = (str(input).replace("'", "\"").replace("None", "null"),)
+    query = f"INSERT INTO {request_name}.inputs (input, status) VALUES (%s, %s) RETURNING id"
+    params = (str(input).replace("'", "\"").replace("None", "null"), True)
     connl.execute(query, params)
     connl.commit()
     input_id = connl.result.fetchone()[0]
