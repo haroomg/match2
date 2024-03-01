@@ -22,6 +22,7 @@ paramsl = {
 }
 
 # PATHS
+TRASH_PATH = "trash"
 DATA_PATH = "trash/data"
 DB_PATH = "trash/db"
 FASTDUP_PATH = "trash/fastdup"

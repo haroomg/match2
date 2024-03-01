@@ -1,5 +1,7 @@
+from .db import DatabaseConnection
 from fastapi import HTTPException
 from pprint import pprint as pp
+from .constans import paramsl
 from .constans import BUCKET
 from .s3 import client
 import pandas as pd
@@ -39,13 +41,14 @@ def create_load_data(
     return
 
 
-def search(
+def search_db(
     schema_name: str = "public",
     table_name: str = None, 
     comlumns: list = "*",
     parameter: dict = None, 
-    conn = None
     ) -> None:
+
+    conn = DatabaseConnection(connect= True, **paramsl)
 
     if "operator" in parameter:
         operator = parameter["operator"].upper()
@@ -102,10 +105,11 @@ def search(
                     query += f"({key}->> '{name}' = {vl}) {operator} "
         
     query = query[:-(len(operator)+2)]
+    print(query)
     conn.execute(query)
 
     test, result = itertools.tee(conn.result)
-    
+    conn.close()
 
     try:
         # si itera es que contiene informacion
@@ -149,54 +153,53 @@ def add_metadata(
         return img_path
 
 
-def download_images(
-        local_path_images: str = None, 
-        destination_folder: str = None
-    ) -> str:
+def download_images(path_images_s3: str = None, destination_folder: str = None) -> str:
+    if path_images_s3 is None or destination_folder is None:
+        raise ValueError("Los argumentos 'path_images_s3' y 'destination_folder' no pueden ser None.")
+
+    downloaded_images = []
 
     def download_image(imagen: str = None) -> None:
-
         file_name = os.path.basename(imagen)
-        path = os.path.join(destination_folder, file_name).replace("\\", "/")
+        path = os.path.join(destination_folder, file_name).replace("\\", "/").replace("\n", "")
 
         try:
-            client.download_file(BUCKET, imagen, path)
+            if not os.path.exists(path):  # Verificar si la imagen ya existe en el destino
+                client.download_file(BUCKET, imagen, path)
+            
+            downloaded_images.append(path + "\n")
+            
             # modificamos la metadata de la imagen y en caso de que no tenga se la agregamos
             try:
                 add_metadata(path)
-            except:
-                print(f"La metadata del archivo no pudo ser modificada:\nFile:{path}")
+            except Exception as e:
+                print(f"La metadata del archivo no pudo ser modificada:\nFile:{path}\nError:{str(e)}")
 
         except Exception as e:
             print(f"Error al descargar la imagen {imagen}: {str(e)}")
 
-    cont = 0
+    with open(path_images_s3, 'r') as images_s3:
 
-    with open(local_path_images, 'r') as images:
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            file_copy = os.path.join(os.path.dirname(local_path_images), "local_path_files.txt").replace("\\", "/")
+            file_copy = os.path.join(os.path.dirname(path_images_s3), "local_path_files.txt").replace("\\", "/")
 
             with open(file_copy, "w") as file:
-
                 futures = []
 
                 # Inicia la descarga de las imágenes en paralelo
-                for image in images:
+                for image_s3 in images_s3:
+                    futures.append(executor.submit(download_image, image_s3))
+                
+                # Espera a que todas las descargas se completen
+                concurrent.futures.wait(futures)
 
-                    futures.append(executor.submit(download_image, image.replace("\n", "")))
-                    file_name = os.path.basename(image)
-                    path_img = os.path.join(destination_folder, file_name)
-                    path_img = path_img.replace("\\", "/")
+                if len(downloaded_images) > 0:
+                    for downloaded_image in downloaded_images:
+                        file.write(downloaded_image)
+                    
+                    print(f"Un total de {len(downloaded_images)} imagen(es) ha(n) sido descargada(s).")
+                    return file_copy
 
-                    #3
-                    file.write(path_img)
-                    cont += 1
-
-            
-            # Espera a que todas las descargas se completen
-            concurrent.futures.wait(futures)
-
-    print(f"Un total de {cont} acaban de ser descargados")
-    print(f"El archivo {local_path_images} acaba de ser midificado.")
-
-    return file_copy, cont
+                else:
+                    print("No se pudo descargar ninguna imagen. Verifica las direcciones en el S3.")
+                    return False

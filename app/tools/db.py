@@ -10,6 +10,8 @@ class DatabaseConnection:
         self.user = user
         self.password = password
 
+        self.result = None
+
         self.on = False
         self.off = True
 
@@ -18,9 +20,6 @@ class DatabaseConnection:
 
         if connect:
             self.connect()
-
-        
-
 
 
 
@@ -43,7 +42,7 @@ class DatabaseConnection:
             print("La conexión a la base de datos ya esta establecida.")
 
 
-    def execute(self, query, params=None):
+    def execute(self, query, params: tuple =None, commit: bool = False):
         
         if self.on:
             try:
@@ -51,8 +50,12 @@ class DatabaseConnection:
                     self.cursor.execute(query, params)
                 else:
                     self.cursor.execute(query)
+                
                 self.result = self.cursor
-                self.conn.commit()
+
+                if commit:
+                    self.commit()
+
             except psycopg2.Error as error:
                 # Manejar el error o realizar alguna acción según sea necesario
                 print("Ocurrió un error:", error)
@@ -65,6 +68,7 @@ class DatabaseConnection:
 
         if self.on:
             self.conn.commit()
+            self.cont = 0
         else:
             print("La conexión fue cerrada. No se puede hacer commit")
 
@@ -79,7 +83,7 @@ class DatabaseConnection:
 
     def close(self, commit: bool = True):
 
-        if self.off:
+        if not self.off:
 
             self.on = False
             self.off = True
