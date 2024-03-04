@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+from typing import Union
 import boto3
 import os
 
@@ -62,3 +63,19 @@ def search_correct_s3_path(s3_paths: list = None, s3_file_name: str = None) -> s
         return s3_paths[index_correct_path]
     else:
         return ""
+
+
+def get_path_s3(file: str, paths: Union[str, list]) -> str:
+
+    if isinstance(paths, list):
+
+        path_files = [validate_path(os.path.join(path, file)) for path in paths]
+        if any(path_files):
+            return paths[path_files.index(True)]
+        
+        else:
+            return None
+    
+    elif isinstance(paths, str):
+
+        return paths

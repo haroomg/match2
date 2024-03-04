@@ -44,11 +44,13 @@ def create_load_data(
 def search_db(
     schema_name: str = "public",
     table_name: str = None, 
-    comlumns: list = "*",
-    parameter: dict = None, 
+    columns: list = "*",
+    parameter: dict = None,
+    conn_params: dict = None 
     ) -> None:
 
-    conn = DatabaseConnection(connect= True, **paramsl)
+    conn = DatabaseConnection(**conn_params)
+    conn.connect()
 
     if "operator" in parameter:
         operator = parameter["operator"].upper()
@@ -56,10 +58,10 @@ def search_db(
     else:
         operator = "AND"
     
-    if comlumns != "*":
-        col = ", ".join(comlumns)
+    if columns != "*":
+        col = ", ".join(columns)
     else:
-        col = comlumns
+        col = columns
     
     query = f"SELECT {col} FROM {schema_name}.{table_name} WHERE "
 
@@ -105,18 +107,11 @@ def search_db(
                     query += f"({key}->> '{name}' = {vl}) {operator} "
         
     query = query[:-(len(operator)+2)]
-    print(query)
-    conn.execute(query)
+    result = conn.execute(query).fetchall()
 
-    test, result = itertools.tee(conn.result)
-    conn.close()
-
-    try:
-        # si itera es que contiene informacion
-        next(test)
-        del test
+    if len(result):
         return result
-    except:
+    else:
         return False
 
 
@@ -160,6 +155,7 @@ def download_images(path_images_s3: str = None, destination_folder: str = None) 
     downloaded_images = []
 
     def download_image(imagen: str = None) -> None:
+        imagen = imagen.replace("\n", "")
         file_name = os.path.basename(imagen)
         path = os.path.join(destination_folder, file_name).replace("\\", "/").replace("\n", "")
 
