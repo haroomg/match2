@@ -95,10 +95,6 @@ for input_file in path_file_inputs:
 
                     print(f"Se produjo un error: {type(e).__name__} - {str(e)}")
 
-                    for name in ["db", "fastdup", "img"]:
-                        shutil.rmtree(f"trash/{name}", ignore_errors=True)
-                        os.mkdir(f"trash/{name}")
-
             else:
                 print("el input ya esta registrado:")
                 pp(inputs)

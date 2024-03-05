@@ -1,15 +1,18 @@
-from .tools.functions import search_db, download_images, add_metadata
+# Third-party imports
+import os
+import json
+import shutil
+import sqlite3
+import fastdup
+import pandas as pd
+from uuid import uuid4
+from fastapi import HTTPException
+
+# Local imports
+from .tools.functions import search_db, download_images
 from .tools.db import DatabaseConnection
 from .tools.s3 import get_path_s3
-from fastapi import HTTPException
 from .tools.constans import *
-from uuid import uuid4
-import pandas as pd
-import fastdup 
-import sqlite3
-import shutil
-import json
-import os
 
 get_request_name = lambda request : "request_" + request.replace("-", "_")
 
@@ -39,7 +42,7 @@ def match_img(
         request_id: str = None, 
         input: dict = None, 
         s3_path_img_origin: str = None, 
-        s3_path_img_alternative: str = None
+        s3_path_img_alternative: str = None,
         ) -> dict:
     
     connl = DatabaseConnection(**paramsl)
@@ -102,8 +105,8 @@ def match_img(
 
         if result == None:
             query = f"INSERT INTO {request_name}.inputs (input, status) VALUES (%s, %s) RETURNING id"
-            connl.execute(query, (json.dumps(input), True), commit= True)
-            input_id = connl.result.fetchone()[0]
+            
+            input_id = connl.execute(query, (json.dumps(input), True)).fetchone()[0]
 
         elif result[3] == False:
             input_id = result[0]
@@ -128,11 +131,16 @@ def match_img(
         with sqlite3.connect(db_name) as conn_lite:
             
             for name in ["origin", "alternative"]:
-                conn_lite.execute(F"CREATE TABLE IF NOT EXISTS {name}(id INTEGER, file_name VARCHAR(1024))")
+                conn_lite.execute(f"CREATE TABLE IF NOT EXISTS {name}(id INTEGER, file_name VARCHAR(1024))")
+
+            conn_lite.execute(f"CREATE TABLE IF NOT EXISTS matches (id INGEER, id_origin INTEGER, id_alternative INTEGER, distance FLOAT,\
+                                FOREIGN KEY (id_origin) REFERENCES origin(id), FOREIGN KEY (id_alternative) REFERENCES alternative(id))")
             conn_lite.commit()
 
             for search, table_name, path_s3 in zip([search_origin, search_alternative], ["origin", "alternative"], [s3_path_img_origin, s3_path_img_alternative]):
-                
+
+                cont = 0
+
                 query = f"INSERT INTO {table_name}(id, file_name)  VALUES (?, ?)"
 
                 for data in search:
@@ -143,6 +151,8 @@ def match_img(
                     correct_path_s3 = get_path_s3(files_name[0], path_s3)
                     
                     if correct_path_s3:
+                        
+                        cont += 1
 
                         for name in files_name:
                             conn_lite.execute(query, (id_Product, name,))
@@ -150,6 +160,9 @@ def match_img(
                             file.write(path+"\n")
                     else:
                         print("No se encontró la dirección del archivo en el S3.")
+                else:
+                    if cont == 0:
+                        raise ValueError(f"No hay data para descargar del {table_name}.\nPor lo tanto no se puede matchar.")
             
             conn_lite.commit()
         conn_lite.close()
@@ -159,7 +172,7 @@ def match_img(
 
     if new_file_name != False:
 
-        similarity = fd(new_file_name, directory_path["fastdup"], False)
+        similarity = fd(new_file_name, False)
         
         # cambiamos el la direccion de las imagenes para que solo sea el nombre del archivo
         for col_name in ["filename_from", "filename_to"]: 
@@ -168,64 +181,83 @@ def match_img(
         with sqlite3.connect(db_name) as conn_lite:
             
             #3 validamos que la data que se va ha subir no exista
-            query = "SELECT id FROM {table_name} WHERE file_name = '{file_name}'"
-            query2 = f"SELECT origin_id, alternative_id FROM {request_name}.matchings WHERE origin_id = %s AND alternative_id = %s"
-            query3 = f'INSERT INTO public."ProductsRequest2" (id, "idRequest", "originProducts", distance, "alternativeProducts") VALUES(%s,%s,%s,%s,%s);'
+            query = 'SELECT ori.id, alt.id from origin as ori JOIN alternative as alt ON ori.file_name = ? AND alt.file_name = ?'
+            query2 = 'SELECT id, distance from matches WHERE id_origin = ? AND id_alternative = ?'
+            query3 = 'INSERT INTO public."ProductsRequest" (id, "idRequest", "originProducts", distance, "alternativeProducts") VALUES(%s,%s,%s,%s,%s);'
+            query5 = 'INSERT INTO matches (id, id_origin, id_alternative, distance) VALUES (?, ?, ?, ?)'
+            query6 = 'UPDATE matches SET distance = ? WHERE id = ?'
+            query7 = 'UPDATE public."ProductsRequest" SET  "originProducts" = %s, distance = %s, "alternativeProducts" = %s WHERE id = %s'
             
+            cont = 0
+
             for _, row in similarity.iterrows():
 
                 filename_from = row["filename_from"]
-                origin_id = conn_lite.execute(query.format(table_name="origin", file_name=filename_from)).fetchone()
+                filename_to = row["filename_to"]
+                search_ids = conn_lite.execute(query, (filename_from, filename_to)).fetchone()
 
-                if origin_id:
+                if search_ids != None:
 
-                    filename_to = row["filename_to"]
-                    alternative_id = conn_lite.execute(query.format(table_name="alternative", file_name=filename_to)).fetchone()
+                    origin_id, alternative_id = search_ids
+
+                    query4 = f"SELECT ori.products, alt.products FROM {request_name}.origin ori JOIN {request_name}.alternative alt ON ori.id = %s AND alt.id = %s"
                     
-                    if alternative_id:
-                        
-                        params = (origin_id[0], alternative_id[0],)
-                        connl.execute(query2, params)
-                        result = connl.result.fetchone()
+                    product_origin, alternative_product = connl.execute(query4, (origin_id, alternative_id)).fetchone()
 
-                        if result == None:
+                    product_images_origin = product_origin["product_images"]
+                    product_origin["product_images"] = {
+                        "s3_path": s3_path_img_origin,
+                        "matched_image": row["filename_from"],
+                        "files_name": product_images_origin
+                    }
 
-                            query4 = f"SELECT ori.products, alt.products FROM {request_name}.origin ori JOIN {request_name}.alternative alt ON ori.id = %s AND alt.id = %s"
-                            connl.execute(query4, (origin_id, alternative_id))
-                            product_origin, alternative_product = connl.result.fetchone()
+                    product_images_alternative = product_origin["product_images"]
+                    alternative_product["product_images"] = {
+                        "s3_path": s3_path_img_alternative,
+                        "matched_image": row["filename_to"],
+                        "files_name": product_images_alternative
+                    }
 
-                            product_images_origin = product_origin["product_images"]
-                            product_origin["product_images"] = {
-                                "s3_path": s3_path_img_origin,
-                                "matched_image": row["filename_from"],
-                                "files_name": product_images_origin
-                            }
+                    # consultamos si el match ya existe 
+                    match_exist = conn_lite.execute(query2, (origin_id, alternative_id)).fetchone()
 
-                            product_images_alternative = product_origin["product_images"]
-                            alternative_product["product_images"] = {
-                                "s3_path": s3_path_img_alternative,
-                                "matched_image": row["filename_to"],
-                                "files_name": product_images_alternative
-                            }
+                    product_origin = json.dumps(product_origin)
+                    alternative_product = json.dumps(alternative_product)
+                    similarity = row["distance"]
 
-                            id_match = str(uuid4)
-                            product_origin = json.dumps(product_origin)
-                            alternative_product = json.dumps(alternative_product)
-                            similarity = row["similarity"]
+                    if match_exist == None:
 
-                            params = (id_match, request_id, product_origin, similarity, alternative_product)
-                            connp.execute(query3, params= params, commit= True)
-                        else:
-                            continue
+                        id_match = str(uuid4())
+                        params = (id_match, request_id, product_origin, similarity, alternative_product)
+                        connp.execute(query3, params= params)
+
+                        conn_lite.execute(query5, (id_match, origin_id, alternative_id, similarity))
+                        conn_lite.commit()
+
+                        cont += 1
+
+                    else:
+                        id_match, distance = match_exist
+
+                        if similarity <= distance:
+
+                            conn_lite.execute(query6, (similarity, id_match))
+                            conn_lite.commit()
+
+                            connp.execute(query7, (product_origin, similarity, alternative_product, id_match))
+
+                else:
+                    continue
+            else:
+                print(f"Se ha terminado de matchar los productos, en total fue un(os) {cont} matchados.")
     else:
         print("No hay archivos para poder analizar")
-        shutil.rmtree(directory_path["root_address"])
-
-        query5 = f"UPDATE {request_name}.inputs SET status=false WHERE id= %s"
-        connl.execute(query5, (input_id, ))
+        query8 = f"UPDATE {request_name}.inputs SET status=false WHERE id= %s"
+        connl.execute(query8, (input_id, ))
     
     conn_lite.close()
     connl.close()
-    connl.close()
+    connp.close()
     shutil.rmtree(directory_path["root_address"])
     
+    return
