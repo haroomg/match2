@@ -1,13 +1,7 @@
 from .db import DatabaseConnection
-from fastapi import HTTPException
-from pprint import pprint as pp
-from .constans import paramsl
 from .constans import BUCKET
 from .s3 import client
-from tqdm import tqdm
-import pandas as pd
 import concurrent
-import itertools
 import datetime
 import imageio
 import ijson
