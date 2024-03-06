@@ -158,11 +158,11 @@ def match_img(
                             conn_lite.execute(query, (id_Product, name,))
                             path = os.path.join(correct_path_s3, name).replace("\\", "/")
                             file.write(path+"\n")
-                    else:
-                        print("No se encontró la dirección del archivo en el S3.")
+
                 else:
                     if cont == 0:
-                        raise ValueError(f"No hay data para descargar del {table_name}.\nPor lo tanto no se puede matchar.")
+                        shutil.rmtree(directory_path["root_address"])
+                        raise ValueError(f"No hay data para descargar del {table_name}. Por lo tanto no se puede matchar.")
             
             conn_lite.commit()
         conn_lite.close()
@@ -183,10 +183,10 @@ def match_img(
             #3 validamos que la data que se va ha subir no exista
             query = 'SELECT ori.id, alt.id from origin as ori JOIN alternative as alt ON ori.file_name = ? AND alt.file_name = ?'
             query2 = 'SELECT id, distance from matches WHERE id_origin = ? AND id_alternative = ?'
-            query3 = 'INSERT INTO public."ProductsRequest" (id, "idRequest", "originProducts", distance, "alternativeProducts") VALUES(%s,%s,%s,%s,%s);'
+            query3 = 'INSERT INTO public."ProductsRequest2" (id, "idRequest", "originProducts", distance, "alternativeProducts") VALUES(%s,%s,%s,%s,%s);'
             query5 = 'INSERT INTO matches (id, id_origin, id_alternative, distance) VALUES (?, ?, ?, ?)'
             query6 = 'UPDATE matches SET distance = ? WHERE id = ?'
-            query7 = 'UPDATE public."ProductsRequest" SET  "originProducts" = %s, distance = %s, "alternativeProducts" = %s WHERE id = %s'
+            query7 = 'UPDATE public."ProductsRequest2" SET  "originProducts" = %s, distance = %s, "alternativeProducts" = %s WHERE id = %s'
             
             cont = 0
 

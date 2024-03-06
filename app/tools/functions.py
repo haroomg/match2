@@ -69,6 +69,7 @@ def search_db(
     for key, value in parameter.items():
 
         if isinstance(value, str):
+            value = value.replace("'","''")
             query += f"({key} = '{value}') {operator} "
 
         if isinstance(value, int):
@@ -88,6 +89,7 @@ def search_db(
             values = []
             for val in value:
                 if isinstance(val, str):
+                    val = val.replace("'", "''")
                     values.append(f"'{val}'")
                 if isinstance(val, (int, float)):
                     values.append(val)
@@ -97,6 +99,7 @@ def search_db(
         if isinstance(value, dict):
             for name, vl in value.items():
                 if isinstance(vl, str):
+                    vl = vl.replace("'", "''")
                     query += f"({key}->> '{name}' = '{vl}') {operator} "
                 if isinstance(vl, (int, float)):
                     query += f"({key}->> '{name}' = {vl}) {operator} "
