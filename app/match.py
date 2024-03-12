@@ -13,6 +13,7 @@ from .tools.functions import search_db, download_images
 from .tools.db import DatabaseConnection
 from .tools.s3 import get_path_s3
 from .tools.constans import *
+from .inputs import Input
 
 get_request_name = lambda request : "request_" + request.replace("-", "_")
 
@@ -131,7 +132,7 @@ def match_img(
         with sqlite3.connect(db_name) as conn_lite:
             
             for name in ["origin", "alternative"]:
-                conn_lite.execute(f"CREATE TABLE IF NOT EXISTS {name}(id INTEGER, file_name VARCHAR(1024))")
+                conn_lite.execute(f"CREATE TABLE IF NOT EXISTS {name}(id INTEGER, file_name VARCHAR(1024)), s3_path VARCHAR(1024)")
 
             conn_lite.execute(f"CREATE TABLE IF NOT EXISTS matches (id INGEER, id_origin INTEGER, id_alternative INTEGER, distance FLOAT,\
                                 FOREIGN KEY (id_origin) REFERENCES origin(id), FOREIGN KEY (id_alternative) REFERENCES alternative(id))")
@@ -155,7 +156,7 @@ def match_img(
                         cont += 1
 
                         for name in files_name:
-                            conn_lite.execute(query, (id_Product, name,))
+                            conn_lite.execute(query, (id_Product, name, correct_path_s3))
                             path = os.path.join(correct_path_s3, name).replace("\\", "/")
                             file.write(path+"\n")
 
@@ -181,7 +182,7 @@ def match_img(
         with sqlite3.connect(db_name) as conn_lite:
             
             #3 validamos que la data que se va ha subir no exista
-            query = 'SELECT ori.id, alt.id from origin as ori JOIN alternative as alt ON ori.file_name = ? AND alt.file_name = ?'
+            query = 'SELECT ori.id, alt.id, ori.path_s3, alt.path_s3 from origin as ori JOIN alternative as alt ON ori.file_name = ? AND alt.file_name = ?'
             query2 = 'SELECT id, distance from matches WHERE id_origin = ? AND id_alternative = ?'
             query3 = 'INSERT INTO public."ProductsRequest" (id, "idRequest", "originProducts", distance, "alternativeProducts") VALUES(%s,%s,%s,%s,%s);'
             query5 = 'INSERT INTO matches (id, id_origin, id_alternative, distance) VALUES (?, ?, ?, ?)'
@@ -194,11 +195,11 @@ def match_img(
 
                 filename_from = row["filename_from"]
                 filename_to = row["filename_to"]
-                search_ids = conn_lite.execute(query, (filename_from, filename_to)).fetchone()
+                search_data = conn_lite.execute(query, (filename_from, filename_to)).fetchone()
 
-                if search_ids != None:
+                if search_data != None:
 
-                    origin_id, alternative_id = search_ids
+                    origin_id, alternative_id, origin_path_s3, alternative_path_s3= search_data
 
                     query4 = f"SELECT ori.products, alt.products FROM {request_name}.origin ori JOIN {request_name}.alternative alt ON ori.id = %s AND alt.id = %s"
                     
@@ -206,14 +207,16 @@ def match_img(
 
                     product_images_origin = product_origin["product_images"]
                     product_origin["product_images"] = {
-                        "s3_path": s3_path_img_origin,
+                        "input_id": input_id,
+                        "s3_path": origin_path_s3,
                         "matched_image": row["filename_from"],
                         "files_name": product_images_origin
                     }
 
                     product_images_alternative = product_origin["product_images"]
                     alternative_product["product_images"] = {
-                        "s3_path": s3_path_img_alternative,
+                        "input_id": input_id,
+                        "s3_path": alternative_path_s3,
                         "matched_image": row["filename_to"],
                         "files_name": product_images_alternative
                     }
