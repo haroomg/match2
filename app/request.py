@@ -1,14 +1,17 @@
-from fastapi import HTTPException
+from .tools.db import DatabaseConnection
 from .tools.s3 import client, bucket
+from fastapi import HTTPException
+from .tools.constans import *
 from .tools.functions import *
 from .tools.constans import *
 import shutil
 import os
 
-
-
-def load(request_id: str = None, connp = None, connl = None) -> dict:
+def load(request_id: str = None) -> dict:
     
+    connp = DatabaseConnection(**paramsp)
+    connl = DatabaseConnection(**paramsl)
+
     connp.connect()
     connl.connect()
     

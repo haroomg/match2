@@ -1,5 +1,4 @@
-from pydantic import BaseModel, validator
-from typing import Union
+from pydantic import BaseModel
 
 class Load_reques(BaseModel):
     

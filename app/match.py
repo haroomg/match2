@@ -66,6 +66,16 @@ def match_img(
 
         raise HTTPException(status_code=409, detail=msm)
 
+    elif input_request.status == 6:
+
+        msm = {
+            "Status_input":STATUS[input_request.status],
+            "input_id": input_request.id,
+            "input": input_request.request
+        }
+
+        return msm
+
     search_origin = search_db(
         schema_name= request_name, 
         columns= ["id","products"], 
@@ -275,4 +285,10 @@ def match_img(
     connp.close()
     shutil.rmtree(directory_path["root_address"])
     
-    return
+    msm = {
+        "msm":STATUS[input_request.status],
+        "number_matches_found": cont,
+        "input": input_request.request
+    }
+
+    return msm

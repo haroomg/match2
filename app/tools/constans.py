@@ -28,6 +28,7 @@ BUCKET = os.environ.get("AWS_BUCKET_NAME")
 
 # PATHS
 TRASH_PATH = "trash"
+S3_PATH = "trash/s3"
 
 # STATUS INPUTS
 """Esto es una cochinada, pero que se le va ha hacer"""
