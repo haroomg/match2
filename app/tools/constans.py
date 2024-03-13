@@ -1,3 +1,4 @@
+from .db import DatabaseConnection
 from dotenv import load_dotenv
 import os
 
@@ -21,13 +22,21 @@ paramsl = {
     "port": os.environ.get("POSTGRES_PORT") 
 }
 
-# PATHS
-TRASH_PATH = "trash"
-DATA_PATH = "trash/data"
-DB_PATH = "trash/db"
-FASTDUP_PATH = "trash/fastdup"
-IMG_PATH = "trash/img" 
-S3_PATH = "trash/s3"
 
 # AWS
 BUCKET = os.environ.get("AWS_BUCKET_NAME")
+
+# PATHS
+TRASH_PATH = "trash"
+
+# STATUS INPUTS
+"""Esto es una cochinada, pero que se le va ha hacer"""
+conn = DatabaseConnection(**paramsp)
+conn.connect()
+
+STATUS = {
+    id_status: msm
+    for id_status, msm in conn.execute('select * from public."statusInput"')
+}
+
+conn.close()

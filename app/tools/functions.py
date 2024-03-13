@@ -1,5 +1,6 @@
 from .db import DatabaseConnection
 from .constans import BUCKET
+from hashlib import sha256
 from .s3 import client
 import concurrent
 import datetime
@@ -197,3 +198,13 @@ def download_images(path_images_s3: str = None, destination_folder: str = None) 
                 else:
                     print("No se pudo descargar ninguna imagen. Verifica las direcciones en el S3.")
                     return False
+
+
+def generate_hash(value1: str = None ,value2: str = None) -> sha256:
+
+    concat_values = value1 + value2
+
+    hash_object = sha256(concat_values.encode())
+    hash_result = hash_object.hexdigest()
+
+    return hash_result
