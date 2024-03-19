@@ -9,11 +9,12 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 # Local imports
-from .tools.functions import search_db, download_images
+from .tools.functions import download_images
 from .tools.db import DatabaseConnection
-from .tools.s3 import get_path_s3
-from .tools.constans import *
-from .inputs import Input
+from .tools.aws import get_path_s3
+from .search import search_db
+from .tools.settings import DATABASES, TRASH
+from .tools.classes import Input
 
 get_request_name = lambda request : "request_" + request.replace("-", "_")
 
@@ -46,8 +47,8 @@ def match_img(
         s3_path_img_alternative: str = None,
         ) -> dict:
     
-    connl = DatabaseConnection(**paramsl)
-    connp = DatabaseConnection(**paramsp)
+    connl = DatabaseConnection(**DATABASES)
+    connp = DatabaseConnection(**DATABASES)
 
     connl.connect()
     connp.connect()
@@ -56,20 +57,20 @@ def match_img(
 
     input_request = Input(request_id, input)
     
-    if input_request.status == 5:
+    if input_request.status == 2: # matching
         
         msm = {
-            "Status_input":STATUS[input_request.status],
+            "Status_input":input_request.status_dict[input_request.status],
             "input_id": input_request.id,
             "input": input_request.request
         }
 
         raise HTTPException(status_code=409, detail=msm)
 
-    elif input_request.status == 6:
+    elif input_request.status == 6: # ignore
 
         msm = {
-            "Status_input":STATUS[input_request.status],
+            "Status_input":input_request.status_dict[input_request.status],
             "input_id": input_request.id,
             "input": input_request.request
         }
@@ -81,21 +82,21 @@ def match_img(
         columns= ["id","products"], 
         parameter= input["origin"], 
         table_name= "origin", 
-        conn_params=paramsl)
+        conn_params=DATABASES)
     
     search_alternative = search_db(
         schema_name= request_name, 
         columns=["id","products"], 
         parameter= input["alternative"], 
         table_name= "alternative", 
-        conn_params=paramsl)
+        conn_params=DATABASES)
     
     if search_origin == False or search_alternative == False:
 
-        input_request.status = 3
+        input_request.status = 4 # couldn't find data from DB
 
         msm = {
-            "msm":STATUS[input_request.status],
+            "msm":input_request.status_dict[input_request.status],
             "input_id": input_request.id,
             "input": input_request.request
         }
@@ -105,7 +106,7 @@ def match_img(
         raise HTTPException(status_code=409, detail=msm)
     
     directory_path = {
-            "root_address": os.path.join(TRASH_PATH, str(uuid4())),
+            "root_address": os.path.join(TRASH, str(uuid4())),
         }
 
     directory_path["img"] = os.path.join(directory_path["root_address"], "img")
@@ -120,6 +121,9 @@ def match_img(
         os.mkdir(path)
 
     # fin de la fase análisis del input e inicio del proceso de match
+    input_request.status = 2 # matching
+    input_request.update()
+    
     with open(filename_images, "w", encoding="utf-8") as file:
         # creamos una db local para guardar la relacion entre la imagen y el id
         with sqlite3.connect(db_name) as conn_lite:
@@ -156,10 +160,10 @@ def match_img(
                 else:
                     if cont == 0:
                         
-                        input_request.status = 4
+                        input_request.status = 5 # couldn't find images to dowload from s3
 
                         msm = {
-                            "Status_input":STATUS[input_request.status],
+                            "Status_input":input_request.status_dict[input_request.status],
                             "input_id": input_request.id,
                             "input": input_request.request
                         }
@@ -191,10 +195,10 @@ def match_img(
             #3 validamos que la data que se va ha subir no exista
             query = 'SELECT ori.id, alt.id, ori.s3_path, alt.s3_path from origin as ori JOIN alternative as alt ON ori.file_name = ? AND alt.file_name = ?'
             query2 = 'SELECT id, distance from matches WHERE id_origin = ? AND id_alternative = ?'
-            query3 = 'INSERT INTO public."ProductsRequest2" (id, "idRequest", "originProducts", distance, "alternativeProducts") VALUES(%s,%s,%s,%s,%s);'
+            query3 = 'INSERT INTO public."ProductsRequest" (id, "idRequest", "originProducts", distance, "alternativeProducts") VALUES(%s,%s,%s,%s,%s);'
             query5 = 'INSERT INTO matches (id, id_origin, id_alternative, distance) VALUES (?, ?, ?, ?)'
             query6 = 'UPDATE matches SET distance = ? WHERE id = ?'
-            query7 = 'UPDATE public."ProductsRequest2" SET  "originProducts" = %s, distance = %s, "alternativeProducts" = %s WHERE id = %s'
+            query7 = 'UPDATE public."ProductsRequest" SET  "originProducts" = %s, distance = %s, "alternativeProducts" = %s WHERE id = %s'
             
             cont = 0
 
@@ -261,14 +265,14 @@ def match_img(
             else:
                 print(f"Se ha terminado de matchar los productos, en total fue un(os) {cont} matchados.")
 
-                input_request.status = 2
+                input_request.status = 3
                 input_request.update()
     else:
 
-        input_request.status = 4
+        input_request.status = 5 # couldn't find images to dowload from s3
 
         msm = {
-            "Status_input":STATUS[input_request.status],
+            "Status_input":input_request.status_dict[input_request.status],
             "input_id": input_request.id,
             "input": input_request.request
         }
@@ -286,7 +290,7 @@ def match_img(
     shutil.rmtree(directory_path["root_address"])
     
     msm = {
-        "msm":STATUS[input_request.status],
+        "msm":input_request.status_dict[input_request.status],
         "number_matches_found": cont,
         "input": input_request.request
     }

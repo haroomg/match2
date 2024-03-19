@@ -1,6 +1,4 @@
-from .tools.constans import paramsl, paramsp
 from .match import match_img
-from .tools.db import DatabaseConnection
 from fastapi import FastAPI
 from .request import load
 from .shema import *
@@ -9,12 +7,12 @@ from .shema import *
 app = FastAPI()
 
 #3
-@app.post("/request/load/")
-def load_request(request: Load_reques) -> dict:
+# @app.post("/request/load/")
+# def load_request(request: Load_reques) -> dict:
     
-    request_id: str = request.request_id
+#     request_id: str = request.request_id
     
-    return load(request_id)
+#     return load(request_id)
 
 
 @app.post("/match/img")
