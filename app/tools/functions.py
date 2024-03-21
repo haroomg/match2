@@ -1,40 +1,9 @@
-from .db import DatabaseConnection
-from .settings import AWS
 from hashlib import sha256
-from .aws import client
+from .aws import S3
 import concurrent
 import datetime
 import imageio
-import ijson
-import json
 import os
-
-def create_load_data(
-    shema_name: str = "public",
-    table_name: str = None, 
-    path_file: str = None,
-    conn = None
-    ) -> None:
-    
-    query = f"CREATE TABLE IF NOT EXISTS {shema_name}.{table_name}(id SERIAL PRIMARY KEY, products JSONB)"
-    conn.execute(query)
-    conn.commit()
-
-    with open(path_file, "r", encoding="utf8") as file:
-        json_file = ijson.items(file, "item")
-
-        query = f"INSERT INTO {shema_name}.{table_name}(products) VALUES(%s)"
-        cont = 0
-
-        for obj in json_file:
-            conn.execute(query, (json.dumps(obj),))
-            cont += 1
-    
-        print(f"La tabla {table_name} fue creada en el shema {shema_name}.")
-        print(f"Un total de {cont} filas fueron ingresados en la tabla {table_name}.")
-        conn.commit()
-    
-    return
 
 
 def add_metadata(
@@ -74,6 +43,8 @@ def download_images(path_images_s3: str = None, destination_folder: str = None) 
     if path_images_s3 is None or destination_folder is None:
         raise ValueError("Los argumentos 'path_images_s3' y 'destination_folder' no pueden ser None.")
 
+    s3 = S3()
+
     downloaded_images = []
 
     def download_image(imagen: str = None) -> None:
@@ -83,7 +54,7 @@ def download_images(path_images_s3: str = None, destination_folder: str = None) 
 
         try:
             if not os.path.exists(path):  # Verificar si la imagen ya existe en el destino
-                client.download_file(AWS["s3"]["bucket_name"], imagen, path)
+                s3.download_file(imagen, path)
             
             downloaded_images.append(path + "\n")
             

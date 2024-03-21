@@ -23,8 +23,11 @@ class DatabaseConnection:
 
     def execute(self, query, params=None):
         self.cursor.execute(query, params or ())
-        self.conn.commit()
+        # self.conn.commit()
         return self.cursor
+    
+    def commit(self):
+        self.conn.commit()
 
     def close(self):
         self.cursor.close()
