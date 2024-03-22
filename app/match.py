@@ -40,7 +40,7 @@ def fd(path_imgs: str = None, bring_invalidImages: bool = False) -> pd.DataFrame
 
 def match_img(
         request_id: str = None, 
-        input: dict = None, 
+        input_request: dict = None, 
         ) -> dict:
     
     connl = DatabaseConnection(**DATABASES)
@@ -61,7 +61,7 @@ def match_img(
 
         raise HTTPException(status_code=409, detail=msm)
     
-    if request.exists_schema:
+    if request.exists_schema == False:
 
         msm = {
             "status": f"El schema con la data no existe",
@@ -71,7 +71,7 @@ def match_img(
         raise HTTPException(status_code=409, detail=msm)
 
 
-    input = Input(request_id, input)
+    input = Input(request_id, input_request)
 
     
     if input.status == 2: # matching
@@ -97,14 +97,14 @@ def match_img(
     search_origin = search_db(
         schema_name= request.schema_name, 
         columns= ["id","products"], 
-        parameter= input["origin"], 
+        parameter= input_request["origin"], 
         table_name= "origin", 
         conn_params=DATABASES)
     
     search_alternative = search_db(
         schema_name= request.schema_name, 
         columns=["id","products"], 
-        parameter= input["alternative"], 
+        parameter= input_request["alternative"], 
         table_name= "alternative", 
         conn_params=DATABASES)
     
@@ -162,11 +162,11 @@ def match_img(
 
             for search, table_name, path_s3 in zip([search_origin, search_alternative], ["origin", "alternative"], s3_path_images_origin_and_alternative):
 
-                cont = 0
-
                 query = f"INSERT INTO {table_name}(id, file_name, s3_path)  VALUES (?, ?, ?)"
 
                 for data in search:
+
+                    internal_cont = 0
 
                     id_Product, list_images = data
                     files_name = [img for img in list_images["product_images"] if img != None]
@@ -174,33 +174,35 @@ def match_img(
                     correct_path_s3 = s3.get_path_s3(files_name[0], path_s3)
                     
                     if correct_path_s3:
-                        
-                        cont += 1
+
+                        internal_cont += 1
 
                         for name in files_name:
                             conn_lite.execute(query, (id_Product, name, correct_path_s3))
                             path = os.path.join(correct_path_s3, name).replace("\\", "/")
                             file.write(path+"\n")
-
-                else:
-                    if cont == 0:
+                    
+                    if internal_cont == 0:
                         
+                        print(f"No se encontro data en la tabla '{table_name}'")
+
                         input.status = 5 # couldn't find images to dowload from s3
 
                         msm = {
                             "Status_input":input.status_dict[input.status],
+                            "table_name": table_name,
                             "input_id": input.id,
                             "input": input.request
                         }
 
-                        conn_lite.close()
+                        # conn_lite.close()
                         connl.close()
                         connp.close()
                         shutil.rmtree(directory_path["root_address"])
                         input.update()
-        
+
                         raise HTTPException(status_code=409, detail=msm)
-            
+
             conn_lite.commit()
         conn_lite.close()
 
@@ -270,19 +272,19 @@ def match_img(
 
                     if match_exist == None:
 
-                        query8 =f"""select  exists (select 1 from public."ProductsRequest" pr where "originProducts" -> 'single_key' = '{single_key}')"""
-                        exists_match = connp.execute(query8).fetchone()[0]
+                        # query8 ="""select  exists (select 1 from public."ProductsRequest" pr where "originProducts" ->> 'single_key' = %s)"""
+                        # exists_match = connp.execute(query8, (single_key, )).fetchone()[0]
 
-                        if exists_match == False:
+                        # if exists_match == False:
 
-                            id_match = str(uuid4())
-                            params = (id_match, request_id, product_origin, similarity, alternative_product)
-                            connp.execute(query3, params= params)
+                        id_match = str(uuid4())
+                        params = (id_match, request_id, product_origin, similarity, alternative_product)
+                        connp.execute(query3, params= params)
 
-                            conn_lite.execute(query5, (id_match, origin_id, alternative_id, similarity))
-                            conn_lite.commit()
+                        conn_lite.execute(query5, (id_match, origin_id, alternative_id, similarity))
+                        conn_lite.commit()
 
-                            cont += 1
+                        cont += 1
 
                     else:
                         id_match, distance = match_exist

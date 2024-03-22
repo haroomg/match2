@@ -75,7 +75,7 @@ class S3:
 
         if isinstance(paths, list):
 
-            path_files = [self.alidate_path(os.path.join(path, file)) for path in paths]
+            path_files = [self.validate_path(os.path.join(path, file)) for path in paths]
             if any(path_files):
                 return paths[path_files.index(True)]
             

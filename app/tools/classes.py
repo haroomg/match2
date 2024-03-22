@@ -37,6 +37,8 @@ class Input:
         query = 'SELECT id, status FROM public."inputsMatch" WHERE "idRequest" = %s AND input = %s'
         result = conn.execute(query, (self.id_request, input_request)).fetchone()
 
+        self.__get_status__()
+
         if result != None:
 
             self.id = result[0]
@@ -114,7 +116,7 @@ class Input:
         conn.close()
     
 
-    def get_status(self):
+    def __get_status__(self):
 
         conn = DatabaseConnection(**DATABASES)
         conn.connect()
@@ -159,7 +161,6 @@ class Request:
         query = 'SELECT id, status FROM public."RequestStatus"'
         result = conn.execute(query).fetchall()
         self.status_dict = {id:status for id, status in result}
-
         conn.close()
 
 
@@ -175,9 +176,9 @@ class Request:
         result = conn.execute(query, (self.request_id,)).fetchone()
         exists_schema = conn.execute(query2, (self.schema_name,)).fetchone()[0]
 
-        if result != None:
+        self.__get_status__()
 
-            self.__get_status__()
+        if result != None:
 
             self.filesPath = result[0]
             self.request_status = result[1]
@@ -194,6 +195,7 @@ class Request:
             self.is_load= conn.execute(query3).fetchone()
 
         conn.close()
+
 
 
     def create_schema(self):
@@ -268,17 +270,31 @@ class Request:
 
     def add_path(self, list_path, new_path):
 
-        list_path.append(new_path)
+        if isinstance(new_path, str):
+
+            new_path = [new_path]
+        
+        for path in new_path:
+
+            if path not in list_path:
+
+                list_path.append(path)
+        
         self.update_filesPath()
     
 
     def delete_path(self, list_path, path_to_delete):
+        
+        if isinstance(list_path, str):
+            list_path = [list_path]
 
-        if path_to_delete in list_path:
-            list_path.remove(path_to_delete)
-            self.update_filesPath()
-        else:
-            print(f"'{path_to_delete}' no existe.")
+        for path in list_path:
+
+            if path in list_path:
+                list_path.remove(path)
+                self.update_filesPath()
+            else:
+                print(f"'{path_to_delete}' no existe.")
 
 
     def load_data(self):

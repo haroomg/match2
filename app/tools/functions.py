@@ -40,6 +40,7 @@ def add_metadata(
 
 
 def download_images(path_images_s3: str = None, destination_folder: str = None) -> str:
+    
     if path_images_s3 is None or destination_folder is None:
         raise ValueError("Los argumentos 'path_images_s3' y 'destination_folder' no pueden ser None.")
 
@@ -48,13 +49,15 @@ def download_images(path_images_s3: str = None, destination_folder: str = None) 
     downloaded_images = []
 
     def download_image(imagen: str = None) -> None:
+        
         imagen = imagen.replace("\n", "")
         file_name = os.path.basename(imagen)
         path = os.path.join(destination_folder, file_name).replace("\\", "/").replace("\n", "")
 
         try:
             if not os.path.exists(path):  # Verificar si la imagen ya existe en el destino
-                s3.download_file(imagen, path)
+
+                s3.download_file(imagen, destination_folder)
             
             downloaded_images.append(path + "\n")
             
@@ -65,7 +68,7 @@ def download_images(path_images_s3: str = None, destination_folder: str = None) 
                 print(f"La metadata del archivo no pudo ser modificada:\nFile:{path}\nError:{str(e)}")
 
         except Exception as e:
-            print(f"Error al descargar la imagen {imagen}: {str(e)}")
+            print(f"Error al descargar la imagen {imagen}:\n{str(e)}\n")
 
     with open(path_images_s3, 'r') as images_s3:
 
